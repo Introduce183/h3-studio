@@ -70,3 +70,34 @@ H3 只认 `17k+5` 网格，模型训练区间 **124–362 帧（5–15 秒）**�
 ## 许可
 
 自用项目，无授权。用到的模型与节点遵循各自上游许可。
+
+## 多台机器同步
+
+仓库只放**代码 + 模板 + 文档**；运行产物（`outputs/`、`jobs.json`、`library.json`、`thumbs/`）和个人配置（`config.json`）都在 `.gitignore` 里，不会互相覆盖。
+
+### 第一次（另一台机器）
+
+```powershell
+gh auth login                                    # 私有仓库需要先认证
+git clone https://github.com/Introduce183/h3-studio.git D:\h3-studio
+cd D:\h3-studio
+# 首次还要装环境：见 docs/部署提示词.md（模型、VideoHelperSuite）
+powershell -ExecutionPolicy Bypass -File .\sync.ps1   # 同步模板 + 起 WebUI
+```
+
+### 以后更新
+
+```powershell
+cd D:\h3-studio
+git pull          # 或者一步到位：
+powershell -ExecutionPolicy Bypass -File .\sync.ps1
+```
+
+`sync.ps1` 会：拉最新代码 → 把 `workflows/*` 同步到 DSH 插件目录（按哈希判断，没变不覆盖）→ 重启 WebUI → 健康检查 → 打印作品库状态。模板有变化时会提醒你去 DSH 里重载插件。
+
+### 注意
+
+- **仓库目录 = 部署目录**：直接从 clone 出来的目录跑 `webui/app.py`，`git pull` 才等于更新。别把仓库克隆到 A 处、再从 B 处跑旧副本。
+- **工作流模板不在仓库运行路径里**：它们要复制到 `%USERPROFILE%\.dsh-comfyui-workbench\workflows\`，`sync.ps1` 负责这步；手动的话 `git pull` 不会自动生效。
+- **模板变了要重载插件**：`plugin_manager` 里 `set_bundle` 关→开各一次，否则 `comfyui_run` 预检会误报缺节点。
+- **私有仓库要先认证**：`gh auth login`（推荐）或配置 PAT；没认证 `git clone` 会 404。

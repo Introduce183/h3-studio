@@ -115,3 +115,28 @@ powershell -ExecutionPolicy Bypass -File .\sync.ps1
 - **工作流模板不在仓库运行路径里**：它们要复制到 `%USERPROFILE%\.dsh-comfyui-workbench\workflows\`，`sync.ps1` 负责这步；手动的话 `git pull` 不会自动生效。
 - **模板变了要重载插件**：`plugin_manager` 里 `set_bundle` 关→开各一次，否则 `comfyui_run` 预检会误报缺节点。
 - **私有仓库要先认证**：`gh auth login`（推荐）或配置 PAT；没认证 `git clone` 会 404。
+
+## 怎么判断有没有更新
+
+三种方式，从快到慢：
+
+```powershell
+# 1. 只看有没有更新（不动任何文件）
+powershell -ExecutionPolicy Bypass -File .\sync.ps1 -Check
+#   输出示例：
+#   本地版本: v1.1.0 (8551206)
+#   ⬆ 落后远端 2 个提交（远端 v1.2.0 / 9a1b2c3）
+#      最新提交: feat: xxx
+#      待更新文件:
+#        - webui/app.py
+
+# 2. 纯 git
+git fetch; git log --oneline HEAD..origin/main
+
+# 3. 看 GitHub 页面
+#    https://github.com/Introduce183/h3-studio/commits/main
+```
+
+**版本号**在仓库根目录的 `VERSION` 文件里，每次有实质更新会递增并打 git tag（`v1.1.0`、`v1.2.0`…），`sync.ps1` 也会把本地/远端版本号打出来。
+
+> 注意：`git pull` 只更新仓库里的文件；`workflows/` 还要复制到 DSH 插件目录才生效，`sync.ps1` 会做这步并按文件哈希报告"更新了几个模板"。

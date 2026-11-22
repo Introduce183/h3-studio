@@ -1,11 +1,14 @@
 ﻿# H3 Studio 同步脚本
 # 用法（在仓库目录里跑）：
-#   powershell -ExecutionPolicy Bypass -File .\sync.ps1
-#   powershell -ExecutionPolicy Bypass -File .\sync.ps1 -NoRestart
-# 作用：拉最新代码 → 同步工作流模板到 DSH 插件目录 → 重启 WebUI
+#   powershell -ExecutionPolicy Bypass -File .\sync.ps1            # 检查 + 更新 + 重启
+#   powershell -ExecutionPolicy Bypass -File .\sync.ps1 -Check      # 只看有没有更新
+#   powershell -ExecutionPolicy Bypass -File .\sync.ps1 -NoRestart  # 更新但不重启
+#
+# 作用：查版本差异 → 拉最新代码 → 同步工作流模板到 DSH 插件目录 → 重启 WebUI
 
 param(
     [int]$Port = 8190,
+    [switch]$Check,
     [switch]$NoRestart
 )
 
@@ -18,38 +21,81 @@ function Say($m, $c = "Cyan") { Write-Host $m -ForegroundColor $c }
 Say "== H3 Studio 同步 =="
 Say "仓库: $repo"
 
-# ---------- 1. 拉代码 ----------
 if (-not (Test-Path (Join-Path $repo ".git"))) {
     Say "[错误] 这个目录不是 git 仓库。请先 git clone。" "Red"
     exit 1
 }
-Say "拉取远端…" "DarkGray"
-git pull --ff-only
+
+# ---------- 1. 版本对比 ----------
+$localVer = if (Test-Path (Join-Path $repo "VERSION")) { (Get-Content (Join-Path $repo "VERSION") -Raw).Trim() } else { "?" }
+$headShort = (git rev-parse --short HEAD).Trim()
+Say "本地版本: v$localVer ($headShort)"
+
+Say "查询远端…" "DarkGray"
+git fetch --quiet origin
 if ($LASTEXITCODE -ne 0) {
-    Say "[错误] git pull 失败：本地有改动或分叉。先 git status 看看，或 git stash。" "Red"
+    Say "[错误] git fetch 失败：检查网络或仓库地址。" "Red"
     exit 1
 }
-$head = git log --oneline -1
-Say "当前版本: $head" "Green"
 
-# ---------- 2. 同步工作流模板 ----------
+$behind = [int]((git rev-list --count HEAD..origin/main).Trim())
+$remoteShort = (git rev-parse --short origin/main).Trim()
+$remoteVer = "?"
+try {
+    $remoteVer = ((git show origin/main:VERSION) -replace "`r", "").Trim()
+} catch { }
+$latestMsg = (git log --oneline -1 origin/main).Trim()
+
+if ($behind -eq 0) {
+    Say "✅ 已是最新：v$localVer ($headShort)" "Green"
+    if ($Check) { exit 0 }
+} else {
+    Say "⬆ 落后远端 $behind 个提交（远端 v$remoteVer / $remoteShort）" "Yellow"
+    Say "   最新提交: $latestMsg" "Yellow"
+    Say "   待更新文件:" "Yellow"
+    git diff --name-only HEAD..origin/main | ForEach-Object { "     - $_" }
+    if ($Check) {
+        Say ""
+        Say "（-Check 模式，未做任何改动。去掉 -Check 即执行更新）" "DarkGray"
+        exit 0
+    }
+}
+
+# ---------- 2. 拉代码 ----------
+$oldHead = $headShort
+if ($behind -gt 0) {
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) {
+        Say "[错误] git pull 失败：本地有改动或分叉。先 git status 看看，或 git stash。" "Red"
+        exit 1
+    }
+    $newShort = (git rev-parse --short HEAD).Trim()
+    $newVer = if (Test-Path (Join-Path $repo "VERSION")) { (Get-Content (Join-Path $repo "VERSION") -Raw).Trim() } else { "?" }
+    Say "已更新: $oldHead → $newShort  (v$newVer)" "Green"
+    Say "本次改动文件:" "Green"
+    git diff --name-only "$oldHead..HEAD" | ForEach-Object { "   - $_" }
+} else {
+    Say "代码无需更新，继续检查模板…" "DarkGray"
+}
+
+# ---------- 3. 同步工作流模板 ----------
 $wfSrc = Join-Path $repo "workflows"
 $wfDst = Join-Path $env:USERPROFILE ".dsh-comfyui-workbench\workflows"
 if (Test-Path $wfSrc) {
     New-Item -ItemType Directory -Force $wfDst | Out-Null
-    $copied = 0
+    $changed = @()
     Get-ChildItem $wfSrc -File | ForEach-Object {
         $dst = Join-Path $wfDst $_.Name
         $need = $true
-        if (Test-Path $dst) {
-            $same = (Get-FileHash $_.FullName).Hash -eq (Get-FileHash $dst).Hash
-            $need = -not $same
-        }
-        if ($need) { Copy-Item $_.FullName $dst -Force; $copied++ }
+        if (Test-Path $dst) { $need = (Get-FileHash $_.FullName).Hash -ne (Get-FileHash $dst).Hash }
+        if ($need) { Copy-Item $_.FullName $dst -Force; $changed += $_.Name }
     }
-    Say "模板已同步到: $wfDst（更新 $copied 个文件）" "Green"
-    if ($copied -gt 0) {
-        Say "⚠ 模板有变化，需要在 DSH 里重载插件，否则预检会误报缺节点：" "Yellow"
+    if ($changed.Count -eq 0) {
+        Say "模板已是最新（无需覆盖）" "Green"
+    } else {
+        Say "模板已同步: $($changed.Count) 个文件 → $wfDst" "Green"
+        $changed | ForEach-Object { "   ~ $_" }
+        Say "⚠ 模板有变化，必须去 DSH 里重载插件，否则预检会误报缺节点：" "Yellow"
         Say "   plugin_manager action=set_bundle target=dsh-comfyui-workbench enabled=false" "Yellow"
         Say "   plugin_manager action=set_bundle target=dsh-comfyui-workbench enabled=true" "Yellow"
     }
@@ -57,7 +103,7 @@ if (Test-Path $wfSrc) {
     Say "[警告] 仓库里没有 workflows/ 目录" "Yellow"
 }
 
-# ---------- 3. 重启 WebUI ----------
+# ---------- 4. 重启 WebUI ----------
 if ($NoRestart) {
     Say "已跳过重启（-NoRestart）" "Yellow"
     exit 0

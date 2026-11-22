@@ -24,7 +24,7 @@ if not defined PY (
 if not defined PY (
   echo [错误] 找不到 Python。
   echo 请设置环境变量 H3_PYTHON 指向 ComfyUI 的 python.exe，例如：
-  echo    set H3_PYTHON=D:\ComfyUI\.venv\Scripts\python.exe
+  echo    set H3_PYTHON=<ComfyUI 安装目录>\.venv\Scripts\python.exe
   echo 然后重新运行本脚本。
   pause
   exit /b 1

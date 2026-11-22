@@ -7,7 +7,7 @@
 双击 `启动.bat`，或：
 
 ```powershell
-& 'E:\Comfy-Desktop\ComfyUI-Installs\ComfyUI\ComfyUI\.venv\Scripts\python.exe' 'E:\Comfy-Desktop\h3-studio\app.py'
+& '<ComfyUI 的 venv python>' '<项目目录>\app.py'
 ```
 
 然后打开 **http://127.0.0.1:8190**
@@ -38,11 +38,11 @@
 
 ## 原理
 
-后端把工作流模板（`C:\Users\Introduce\.dsh-comfyui-workbench\workflows\` 里的
+后端把工作流模板（`%USERPROFILE%\.dsh-comfyui-workbench\workflows\` 里的
 `minimax-h3-ref2v-community-multi` / `minimax-h3-ref2v-continue`）读出来，
 按你的选择替换节点参数（参考图、提示词、时长、锚点），再 POST 给 ComfyUI。
 
 - 单段 → 多图模板（7 个 `ref_image` 槽）
 - 衔接 → 续接模板（多一个 `H3Guide`，把末帧锚在第 0 帧）
 
-产物：ComfyUI 输出到 `E:\Comfy-Desktop\ComfyUI-Shared\output\`，本程序会复制一份到 `h3-studio\outputs\` 并保留原名。
+产物：ComfyUI 输出到 `<ComfyUI output 目录>\`，本程序会复制一份到 `h3-studio\outputs\` 并保留原名。

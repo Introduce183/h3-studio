@@ -93,8 +93,8 @@ H3 只认 `17k+5` 网格，模型训练区间 **124–362 帧（5–15 秒）**�
 
 ```powershell
 gh auth login                                    # 私有仓库需要先认证
-git clone https://github.com/Introduce183/h3-studio.git D:\h3-studio
-cd D:\h3-studio
+git clone https://github.com/Introduce183/h3-studio.git <项目目录>
+cd <项目目录>
 # 首次还要装环境：见 docs/部署提示词.md（模型、VideoHelperSuite）
 powershell -ExecutionPolicy Bypass -File .\sync.ps1   # 同步模板 + 起 WebUI
 ```
@@ -102,7 +102,7 @@ powershell -ExecutionPolicy Bypass -File .\sync.ps1   # 同步模板 + 起 WebUI
 ### 以后更新
 
 ```powershell
-cd D:\h3-studio
+cd <项目目录>
 git pull          # 或者一步到位：
 powershell -ExecutionPolicy Bypass -File .\sync.ps1
 ```
@@ -140,3 +140,19 @@ git fetch; git log --oneline HEAD..origin/main
 **版本号**在仓库根目录的 `VERSION` 文件里，每次有实质更新会递增并打 git tag（`v1.1.0`、`v1.2.0`…），`sync.ps1` 也会把本地/远端版本号打出来。
 
 > 注意：`git pull` 只更新仓库里的文件；`workflows/` 还要复制到 DSH 插件目录才生效，`sync.ps1` 会做这步并按文件哈希报告"更新了几个模板"。
+
+## 路径约定（重要）
+
+仓库里**没有写死任何一台机器的绝对路径**。文档里出现的占位符和脚本的探测逻辑如下：
+
+| 占位符 | 指什么 | 谁来确定 |
+|---|---|---|
+| `<项目目录>` | 你 clone 下来的仓库目录 | **你自己**（`sync.ps1` 用脚本所在目录，无需填） |
+| `<ComfyUI 安装目录>` | ComfyUI 的安装根（含 `main.py`） | 你的 ComfyUI Desktop 安装位置 |
+| `<ComfyUI 的 venv python>` | ComfyUI 自带的 python | `启动.bat` / `sync.ps1` 会自动找：`H3_PYTHON` → Desktop 自带 venv → `C:\ComfyUI\...` → PATH |
+| `<models 目录>` / `<ComfyUI input 目录>` / `<ComfyUI output 目录>` | 模型与输入输出目录 | `webui/app.py` **自动从 ComfyUI `/system_stats` 的 `argv` 里读 `--input-directory` / `--output-directory`**；读不到就用 `<ComfyUI 安装目录>\input|output` |
+| `%USERPROFILE%\.dsh-comfyui-workbench\workflows` | DSH 插件的模板目录 | 脚本自动用当前用户目录，不用填 |
+
+想显式指定就拷 `webui/config.example.json` → `config.json` 填 `inputDir` / `outputDir` / `workflowsDir`；`config.json` 在 `.gitignore` 里，不会同步到别的机器。
+
+**判断探测对不对**：`curl http://127.0.0.1:8190/api/outputs`，`items` 非空说明输出目录找对了；为空就是没探测到，去填 `config.json`。

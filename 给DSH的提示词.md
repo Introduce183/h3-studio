@@ -1,4 +1,5 @@
-> **（仓库版说明）** 本文原先是配 zip 包用的；现在项目在 GitHub 上，包已不需要——直接 git clone 这个仓库即可，workflows/、webui/、docs/、efs/ 的对应物分别是仓库里的 workflows/、webui/、docs/（参考图未入库，用你自己的）。下面第 1 节的复制命令把 <解压目录> 换成仓库根目录即可。
+> **（仓库版说明）** 本文原先是配 zip 包用的；现在项目在 GitHub 上，包已不需要——直接 git clone 这个仓库即可，workflows/、webui/、docs/、
+efs/ 的对应物分别是仓库里的 workflows/、webui/、docs/（参考图未入库，用你自己的）。下面第 1 节的复制命令把 <解压目录> 换成仓库根目录即可。
 
 # 任务：把这套 MiniMax-H3 图生视频方案在本机复刻并验收
 
@@ -61,7 +62,7 @@ plugin_manager action=set_bundle target=dsh-comfyui-workbench enabled=true
 ## 2. 装 WebUI
 
 ```powershell
-Copy-Item '<解压目录>\webui' 'D:\h3-studio' -Recurse -Force
+Copy-Item '<解压目录>\webui' '<项目目录>' -Recurse -Force
 ```
 
 可选固定路径：把 `config.example.json` 复制成 `config.json` 再填
@@ -72,7 +73,7 @@ Copy-Item '<解压目录>\webui' 'D:\h3-studio' -Recurse -Force
 
 留空 = 自动探测（`inputDir`/`outputDir` 从 ComfyUI `/system_stats` 的 `argv` 里取 `--input-directory` / `--output-directory`；`workflowsDir` 默认就是上面那个插件目录）。
 
-启动：双击 `启动.bat`，或 `& '<ComfyUI 的 python.exe>' 'D:\h3-studio\app.py'`。
+启动：双击 `启动.bat`，或 `& '<ComfyUI 的 python.exe>' '<项目目录>\app.py'`。
 **用 ComfyUI 自带的 venv python**（已含 `aiohttp`/`av`/`Pillow`/`imageio-ffmpeg`）。`启动.bat` 找 Python 的顺序：`H3_PYTHON` 环境变量 → ComfyUI Desktop 自带 venv → PATH 里的 `python`。
 
 验证（用 curl，别只看页面）：

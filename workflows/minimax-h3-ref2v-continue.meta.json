@@ -1,0 +1,12 @@
+{
+  "title": "MiniMax-H3 视频续接（末帧锚定）",
+  "description": "用 AddGuide 把上一段的最后一帧锚定在新片段的第 0 帧，实现无缝续接（官方 Multiframe Reference 方案）。7 张参考图保身份 + 末帧保衔接；kitchen 后端 + VHS crf12 + 768×1024。",
+  "tags": [
+    "minimax-h3",
+    "video",
+    "ref2va",
+    "continuation",
+    "addguide"
+  ],
+  "enabled": true
+}

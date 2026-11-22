@@ -1,0 +1,12 @@
+{
+  "title": "MiniMax-H3 多图参考生视频（社区配方 · 7 图）",
+  "description": "社区配方的多图版本：7 张参考图（已剔除带游戏 UI 的那张截图，避免 UI 泄漏进画面），kitchen 注意力后端 + SigmaShift + VHS crf12，3:4 / 0.75MP = 768×1024。外貌交给参考图，提示词只写动作。",
+  "tags": [
+    "minimax-h3",
+    "video",
+    "ref2va",
+    "multi-reference",
+    "recommended"
+  ],
+  "enabled": true
+}

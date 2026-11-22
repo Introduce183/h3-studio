@@ -1,0 +1,365 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "ModelPatchTorchSettings",
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": [
+        "1",
+        0
+      ]
+    }
+  },
+  "3": {
+    "class_type": "MiniMaxH3SigmaShift",
+    "inputs": {
+      "shift_video": 12.0,
+      "shift_audio": 3.0,
+      "model": [
+        "2",
+        0
+      ]
+    }
+  },
+  "4": {
+    "class_type": "MiniMaxLowVRAMAttention",
+    "inputs": {
+      "head_chunks": 10,
+      "model": [
+        "3",
+        0
+      ]
+    }
+  },
+  "5": {
+    "class_type": "MiniMaxChunkFeedForward",
+    "inputs": {
+      "chunks": 4,
+      "seq_threshold": 4096,
+      "model": [
+        "4",
+        0
+      ]
+    }
+  },
+  "6": {
+    "class_type": "ModelAttentionBackend",
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "5",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "strength_model": 1.0,
+      "model": [
+        "6",
+        0
+      ]
+    }
+  },
+  "8": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "7",
+        0
+      ],
+      "conditioning": [
+        "48",
+        0
+      ]
+    }
+  },
+  "10": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "11": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": "参考 <Picture 1> 的角色：black short hair with pink streak, fox ears, white techwear jacket, black shorts, thigh-high socks, white boots。她在镜头前双手举到脸旁做出猫爪动作，歪头眨眼，身体轻轻左右晃动。镜头固定，角色全身在画面中。高清细节。"
+    }
+  },
+  "12": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_1.png"
+    }
+  },
+  "13": {
+    "class_type": "ResolutionSelector",
+    "inputs": {
+      "aspect_ratio": "3:4 (Portrait Standard)",
+      "megapixels": 0.75,
+      "multiple": 32
+    }
+  },
+  "14": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 5.0
+    }
+  },
+  "15": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": [
+        "14",
+        0
+      ]
+    }
+  },
+  "16": {
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "inputs": {
+      "prompt": [
+        "11",
+        0
+      ],
+      "width": [
+        "13",
+        0
+      ],
+      "height": [
+        "13",
+        1
+      ],
+      "length": [
+        "15",
+        1
+      ],
+      "ref_image_size": "match",
+      "clip": [
+        "10",
+        0
+      ],
+      "vae": [
+        "17",
+        0
+      ],
+      "audio_vae": [
+        "18",
+        0
+      ],
+      "ref_images.ref_image_0": [
+        "12",
+        0
+      ],
+      "ref_images.ref_image_1": [
+        "40",
+        0
+      ],
+      "ref_images.ref_image_2": [
+        "41",
+        0
+      ],
+      "ref_images.ref_image_3": [
+        "42",
+        0
+      ],
+      "ref_images.ref_image_4": [
+        "43",
+        0
+      ],
+      "ref_images.ref_image_5": [
+        "44",
+        0
+      ],
+      "ref_images.ref_image_6": [
+        "45",
+        0
+      ]
+    }
+  },
+  "17": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+    }
+  },
+  "18": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    }
+  },
+  "20": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 20261122
+    }
+  },
+  "21": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "22": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 8,
+      "denoise": 1.0,
+      "model": [
+        "7",
+        0
+      ]
+    }
+  },
+  "23": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "20",
+        0
+      ],
+      "guider": [
+        "8",
+        0
+      ],
+      "sampler": [
+        "21",
+        0
+      ],
+      "sigmas": [
+        "22",
+        0
+      ],
+      "latent_image": [
+        "16",
+        1
+      ]
+    }
+  },
+  "30": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "23",
+        0
+      ],
+      "vae": [
+        "17",
+        0
+      ]
+    }
+  },
+  "31": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "23",
+        0
+      ],
+      "vae": [
+        "18",
+        0
+      ]
+    }
+  },
+  "33": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "frame_rate": 24.0,
+      "loop_count": 0,
+      "filename_prefix": "H3_Continue",
+      "format": "video/h264-mp4",
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "30",
+        0
+      ],
+      "audio": [
+        "31",
+        0
+      ],
+      "crf": 12,
+      "pix_fmt": "yuv420p",
+      "save_metadata": true,
+      "trim_to_audio": false
+    }
+  },
+  "40": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_2.png"
+    }
+  },
+  "41": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_3.png"
+    }
+  },
+  "42": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_4.png"
+    }
+  },
+  "43": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_5.png"
+    }
+  },
+  "44": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_6.png"
+    }
+  },
+  "45": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_7.png"
+    }
+  },
+  "47": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "last_frame.png"
+    }
+  },
+  "48": {
+    "class_type": "MiniMaxH3AddGuide",
+    "inputs": {
+      "positive": [
+        "16",
+        0
+      ],
+      "latent": [
+        "16",
+        1
+      ],
+      "vae": [
+        "17",
+        0
+      ],
+      "image": [
+        "47",
+        0
+      ],
+      "frame_idx": 0
+    }
+  }
+}

@@ -1,0 +1,220 @@
+{
+  "vars": [
+    {
+      "name": "image",
+      "label": "参考图",
+      "type": "image",
+      "group": "basic",
+      "bind": "12.inputs.image",
+      "default": "hero_ref_1.png"
+    },
+    {
+      "name": "prompt",
+      "label": "提示词",
+      "type": "string",
+      "required": true,
+      "group": "basic",
+      "bind": "11.inputs.value",
+      "default": "参考 <Picture 1> 的角色：black short hair with pink streak, fox ears, white techwear jacket, black shorts, thigh-high socks, white boots。她在镜头前双手举到脸旁做出猫爪动作，歪头眨眼，身体轻轻左右晃动。镜头固定，角色全身在画面中。高清细节。"
+    },
+    {
+      "name": "duration",
+      "label": "时长（秒）",
+      "type": "number",
+      "group": "basic",
+      "bind": "14.inputs.value",
+      "default": 5,
+      "min": 1,
+      "max": 15,
+      "step": 0.5,
+      "hint": "按 24fps / 17k+5 帧网格吸附：5 秒=124 帧，15 秒=362 帧。"
+    },
+    {
+      "name": "megapixels",
+      "label": "像素量（MP）",
+      "type": "number",
+      "bind": "13.inputs.megapixels",
+      "default": 0.75,
+      "hint": "3:4 画幅下 0.75 = 768×1024（短边正好 768，训练上限）。超过会掉画质。"
+    },
+    {
+      "name": "aspect_ratio",
+      "label": "画幅",
+      "type": "string",
+      "bind": "13.inputs.aspect_ratio",
+      "default": "3:4 (Portrait Standard)"
+    },
+    {
+      "name": "steps",
+      "label": "采样步数",
+      "type": "number",
+      "bind": "22.inputs.steps",
+      "default": 8,
+      "min": 1,
+      "max": 40
+    },
+    {
+      "name": "sampler_name",
+      "label": "采样器",
+      "type": "string",
+      "bind": "21.inputs.sampler_name",
+      "default": "euler",
+      "options": [
+        "euler",
+        "euler_ancestral",
+        "dpmpp_2m",
+        "dpmpp_sde",
+        "dpmpp_2m_sde",
+        "res_multistep",
+        "er_sde",
+        "ddim",
+        "uni_pc"
+      ]
+    },
+    {
+      "name": "scheduler",
+      "label": "调度器",
+      "type": "string",
+      "bind": "22.inputs.scheduler",
+      "default": "simple",
+      "options": [
+        "simple",
+        "beta",
+        "normal",
+        "karras",
+        "exponential",
+        "sgm_uniform",
+        "ddim_uniform"
+      ]
+    },
+    {
+      "name": "denoise",
+      "label": "降噪强度",
+      "type": "number",
+      "bind": "22.inputs.denoise",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01
+    },
+    {
+      "name": "lora",
+      "label": "Turbo LoRA",
+      "type": "string",
+      "bind": "7.inputs.lora_name",
+      "default": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+    },
+    {
+      "name": "lora_strength",
+      "label": "LoRA 强度",
+      "type": "number",
+      "bind": "7.inputs.strength_model",
+      "default": 1.0,
+      "min": 0,
+      "max": 3,
+      "step": 0.05,
+      "hint": "设 0 = 不用加速 LoRA（20 步左右才够）。"
+    },
+    {
+      "name": "seed",
+      "label": "种子",
+      "type": "number",
+      "bind": "20.inputs.noise_seed",
+      "default": 20261122
+    },
+    {
+      "name": "ref_image_size",
+      "label": "参考图尺寸策略",
+      "type": "string",
+      "bind": "16.inputs.ref_image_size",
+      "default": "match",
+      "options": [
+        "match",
+        "max"
+      ]
+    },
+    {
+      "name": "shift_video",
+      "label": "video shift",
+      "type": "number",
+      "bind": "3.inputs.shift_video",
+      "default": 12.0,
+      "min": 1,
+      "max": 30,
+      "step": 0.5
+    },
+    {
+      "name": "shift_audio",
+      "label": "audio shift",
+      "type": "number",
+      "bind": "3.inputs.shift_audio",
+      "default": 3.0,
+      "min": 0.5,
+      "max": 10,
+      "step": 0.5
+    },
+    {
+      "name": "attention",
+      "label": "注意力后端",
+      "type": "string",
+      "bind": "6.inputs.attention",
+      "default": "comfy kitchen attention",
+      "options": [
+        "comfy kitchen attention",
+        "pytorch attention"
+      ]
+    },
+    {
+      "name": "head_chunks",
+      "label": "低显存注意力分块",
+      "type": "number",
+      "bind": "4.inputs.head_chunks",
+      "default": 10
+    },
+    {
+      "name": "frame_rate",
+      "label": "帧率",
+      "type": "number",
+      "bind": "33.inputs.frame_rate",
+      "default": 24,
+      "min": 8,
+      "max": 60
+    },
+    {
+      "name": "filename_prefix",
+      "label": "输出文件名前缀",
+      "type": "string",
+      "bind": "33.inputs.filename_prefix",
+      "default": "H3_Community"
+    },
+    {
+      "name": "crf",
+      "label": "输出画质 (crf)",
+      "type": "number",
+      "bind": "33.inputs.crf",
+      "default": 12,
+      "min": 0,
+      "max": 51,
+      "step": 1,
+      "hint": "越小越清晰、文件越大。12 ≈ 视觉无损，18–20 体积减半。实测 12 时码率 7259 kbps，不设只有 2559。"
+    },
+    {
+      "name": "save_output",
+      "label": "保存到输出目录",
+      "type": "boolean",
+      "bind": "33.inputs.save_output",
+      "default": true
+    }
+  ],
+  "internalInputs": [
+    "value",
+    "expression",
+    "multiple",
+    "weight_dtype",
+    "type",
+    "device",
+    "enable_fp16_accumulation",
+    "chunks",
+    "seq_threshold"
+  ]
+}

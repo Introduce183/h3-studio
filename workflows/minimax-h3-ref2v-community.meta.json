@@ -1,0 +1,13 @@
+{
+  "title": "MiniMax-H3 参考图生视频（社区配方 · 推荐）",
+  "description": "当前推荐工作流。按 FlowForgeLab 8GB 笔记本实测配方重建：comfy-kitchen 注意力后端（不用 Sage patch）、MiniMaxH3SigmaShift（video 12 / audio 3）、VHS 输出（crf 12，码率 7259 kbps）。3:4 / 0.75MP = 768×1024（短边正好 768，训练上限内）。默认 8 步 euler/simple + turbo LoRA 1.0。本机实测：5 秒 / 124 帧约 5 分钟（模型热态约 1.5 分钟）。",
+  "tags": [
+    "minimax-h3",
+    "video",
+    "ref2va",
+    "community",
+    "8gb",
+    "recommended"
+  ],
+  "enabled": true
+}

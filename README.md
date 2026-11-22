@@ -1,5 +1,19 @@
 # H3 Studio · MiniMax-H3 图生视频 WebUI
 
+> ## 🤖 如果你是 AI agent（DSH / Claude / Codex 等），按这个顺序读
+>
+> 1. **先读根目录的 [`给DSH的提示词.md`](给DSH的提示词.md)** —— 这是写给你的执行指令：装模板、重载插件、起 WebUI、跑 4 条验收、按格式汇报。**照着做就行，不用猜。**
+> 2. 要准备环境（下模型、装 VideoHelperSuite）时读 [`docs/部署提示词.md`](docs/部署提示词.md) —— 模型文件名、字节数、SHA256、按显存档位调整的表都在里面。**光看 README 不会知道要下哪 5 个文件。**
+> 3. 装模板或 WebUI 的具体步骤读 [`docs/部署说明.md`](docs/部署说明.md)。
+> 4. 出片参数不对/很慢/报错时查 [`docs/调优笔记.md`](docs/调优笔记.md)。
+>
+> **一键同步（已部署过的机器）**：`powershell -ExecutionPolicy Bypass -File .\sync.ps1`
+>
+> ⚠️ 三个最容易漏的点：
+> - 工作流模板要复制到 `%USERPROFILE%\.dsh-comfyui-workbench\workflows\`，**不是**放在仓库里就生效
+> - 复制完**必须重载插件**（`plugin_manager` 里 `set_bundle` 关→开各一次），否则 `comfyui_run` 会误报缺节点
+> - 模板里写死了 5 个模型文件名，**名字不一致就提交失败**，清单在 `docs/部署提示词.md` 第 2 步
+
 本机 ComfyUI 上的 MiniMax-H3（ref2va）图生视频方案的配套工具：一个傻瓜化 WebUI + 三套调好的 DSH 工作流模板 + 部署文档。
 
 ## 这是什么

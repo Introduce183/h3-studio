@@ -73,10 +73,21 @@ elif _inst:
 else:
     OUTPUT_DIR = HERE / "output"
 
-if CFG.get("workflowsDir"):
-    WORKFLOWS = Path(CFG["workflowsDir"])
-else:
-    WORKFLOWS = Path.home() / ".dsh-comfyui-workbench" / "workflows"
+def pick_workflows_dir(cfg_dir: str) -> Path:
+    """模板目录优先级：config.json → DSH 插件目录 → 仓库自带 workflows/（兜底）。"""
+    candidates = []
+    if cfg_dir:
+        candidates.append(Path(cfg_dir))
+    candidates.append(Path.home() / ".dsh-comfyui-workbench" / "workflows")
+    candidates.append(HERE.parent / "workflows")      # 仓库里的副本
+    candidates.append(HERE / "workflows")
+    for c in candidates:
+        if (c / "minimax-h3-ref2v-community-multi.json").exists():
+            return c
+    return candidates[0]
+
+
+WORKFLOWS = pick_workflows_dir(CFG.get("workflowsDir", ""))
 
 T_SINGLE = "minimax-h3-ref2v-community-multi"
 T_CONTINUE = "minimax-h3-ref2v-continue"

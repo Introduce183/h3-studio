@@ -8,6 +8,24 @@
 
 ---
 
+## v1.3.2 — 2026-11-23
+
+### 修改
+
+- **WebUI 模板目录三级兜底**：`config.json` 的 `workflowsDir` → `%USERPROFILE%\.dsh-comfyui-workbench\workflows`（DSH 插件目录）→ **仓库自带的 `workflows/`**
+  - 以前如果插件目录不存在或没同步模板，生成会直接抛 `FileNotFoundError`
+  - 现在只要仓库在，即使没装 DSH 插件也能跑
+
+### 升级动作
+
+```powershell
+cd <项目目录>
+powershell -ExecutionPolicy Bypass -File .\sync.ps1
+```
+
+> 影响文件：`webui/app.py`、`CHANGELOG.md`、`VERSION`
+
+---
 ## v1.3.1 — 2026-11-23
 
 ### 新增

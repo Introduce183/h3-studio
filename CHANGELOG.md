@@ -8,6 +8,28 @@
 
 ---
 
+## v1.3.1 — 2026-11-23
+
+### 新增
+
+- **`push.ps1`** —— 推送脚本：自动探测本机代理端口（7897/7890/7891/1080/10809/2080）、验证能否通 GitHub、带 3 次重试；支持 `-Message` 顺带提交、`-Proxy <端口>` 指定、`-NoProxy` 强制直连
+
+### 背景
+
+`github.com` 直连在部分网络下会被 reset（`Recv failure: Connection was reset`），而 `api.github.com` 又是通的，很容易误判。有了这个脚本，推送前会先确认代理是否真的可用。
+
+### 升级动作
+
+```powershell
+cd <项目目录>
+git pull
+# 之后推送用：
+powershell -ExecutionPolicy Bypass -File .\push.ps1 -Message "你的改动说明"
+```
+
+> 影响文件：`push.ps1`(新)、`CHANGELOG.md`、`VERSION`
+
+---
 ## v1.3.0 — 2026-11-23
 
 ### 新增

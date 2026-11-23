@@ -17,7 +17,7 @@
 > 2. 要准备环境（下模型、装 VideoHelperSuite）时读 [`docs/部署提示词.md`](docs/部署提示词.md) —— 模型文件名、字节数、SHA256、按显存档位调整的表都在里面。**光看 README 不会知道要下哪 5 个文件。**
 > 3. 装模板或 WebUI 的具体步骤读 [`docs/部署说明.md`](docs/部署说明.md)。
 > 4. 出片参数不对/很慢/报错时查 [docs/调优笔记.md](docs/调优笔记.md)。
-> 5. 要手机/公网访问（DSH 用 dshgo、WebUI 用隧道）看 [docs/远程访问.md](docs/远程访问.md)。
+> 5. 要手机访问（DSH 用 DSH Go App；H3 WebUI 用自己的服务器转发）看 [`docs/远程访问.md`](docs/远程访问.md)。
 >
 > **一键同步（已部署过的机器）**：`powershell -ExecutionPolicy Bypass -File .\sync.ps1`
 >

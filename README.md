@@ -156,3 +156,28 @@ git fetch; git log --oneline HEAD..origin/main
 想显式指定就拷 `webui/config.example.json` → `config.json` 填 `inputDir` / `outputDir` / `workflowsDir`；`config.json` 在 `.gitignore` 里，不会同步到别的机器。
 
 **判断探测对不对**：`curl http://127.0.0.1:8190/api/outputs`，`items` 非空说明输出目录找对了；为空就是没探测到，去填 `config.json`。
+
+## 一键启动（重启电脑后只需一步）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\make-shortcut.ps1   # 首次：建桌面快捷方式
+```
+
+之后**双击桌面的「H3 Studio」**即可：自动启动 ComfyUI（带模型路径）→ 等就绪 → 启动 WebUI → 打开浏览器。
+
+命令行用法：
+
+```powershell
+.\start-all.ps1              # 启动（已在跑的会自动跳过）
+.\start-all.ps1 -Init        # 重新探测路径并写入 startup.json
+.\start-all.ps1 -Restart     # 强制重启两个服务
+.\start-all.ps1 -NoBrowser   # 不自动开浏览器
+```
+
+`start-all.ps1` 自动探测 ComfyUI 的 `main.py`、venv python、`--extra-model-paths-config` 的 yaml、以及 `ComfyUI-Shared\input|output`，结果缓存到 `startup.json`（每台机器独立，不进仓库）。启动后还会自检**模型可见性**——如果 ComfyUI 起来了但看不到模型，会警告"模型路径没生效"，避免跑了半天才发现。
+
+> 找不到 ComfyUI？设环境变量 `COMFYUI_MAIN` 指向 `main.py` 再跑 `-Init`。
+
+## 更新日志
+
+见 [CHANGELOG.md](CHANGELOG.md)。当前 `VERSION` 会随每次改动递增并打 tag。

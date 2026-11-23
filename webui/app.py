@@ -89,10 +89,23 @@ def pick_workflows_dir(cfg_dir: str) -> Path:
 
 WORKFLOWS = pick_workflows_dir(CFG.get("workflowsDir", ""))
 
+# 三档画质：快速 = pruned 蒸馏 LoRA + 4 步；精细/极精细 = 无 LoRA，8/20 步
+QUALITY = {
+    "fast":  {"steps": 4,  "lora": "minimax_h3_dmd_ref2va_8step_turbo_pruned.safetensors", "label": "快速"},
+    "fine":  {"steps": 8,  "lora": None, "label": "精细"},
+    "ultra": {"steps": 20, "lora": None, "label": "极精细"},
+}
+# 3 秒（73 帧）实测基准，用于估算耗时
+# 相对倍率（与硬件无关，以"精细"=1 为基准，本机实测拟合）
+QUALITY_RATIO = {"fast": 0.72, "fine": 1.0, "ultra": 1.85}
+LORA_NODE = "7"
+ATTN_NODE = "6"
+
 T_SINGLE = "minimax-h3-ref2v-community-multi"
 T_CONTINUE = "minimax-h3-ref2v-continue"
-REF_NODES = ["12", "40", "41", "42", "43", "44", "45"]   # ref_image_0..6
+REF_NODES = ["12", "40", "41", "42", "43", "44", "45", "46", "49"]   # ref_image_0..8（模型上限 9 张）
 ANCHOR_NODE = "47"
+VIDEO_NODE = "50"       # VHS_LoadVideoPath：参考视频帧 + 原声
 MAX_REFS = len(REF_NODES)
 
 CLIENT_ID = uuid.uuid4().hex
@@ -136,11 +149,23 @@ def load_template(tid: str) -> dict:
     return json.loads((WORKFLOWS / f"{tid}.json").read_text(encoding="utf-8"))
 
 
-def build_graph(prompt: str, duration: float, images: list[str], mode: str, anchor: str | None) -> dict:
+def build_graph(prompt: str, duration: float, images: list[str], mode: str, anchor: str | None,
+                quality: str = "fine", video: str | None = None) -> dict:
     tid = T_CONTINUE if mode == "continue" else T_SINGLE
     g = load_template(tid)
+    q = QUALITY.get(quality) or QUALITY["fine"]
     g["11"]["inputs"]["value"] = prompt
     g["14"]["inputs"]["value"] = float(duration)
+    g["22"]["inputs"]["steps"] = int(q["steps"])
+    if q["lora"]:
+        g[LORA_NODE]["inputs"]["lora_name"] = q["lora"]
+        g[LORA_NODE]["inputs"]["strength_model"] = 1.0
+    else:
+        # 摘掉 LoRA 节点，让 guider / scheduler 直接吃注意力后端的模型
+        g.pop(LORA_NODE, None)
+        for nid in ("8", "22"):
+            if g.get(nid, {}).get("inputs", {}).get("model", [None])[0] == LORA_NODE:
+                g[nid]["inputs"]["model"] = [ATTN_NODE, 0]
     for i, node in enumerate(REF_NODES):
         key = f"ref_images.ref_image_{i}"
         if i < len(images):
@@ -149,11 +174,65 @@ def build_graph(prompt: str, duration: float, images: list[str], mode: str, anch
         else:
             g["16"]["inputs"].pop(key, None)
             g.pop(node, None)
+    if video:
+        g[VIDEO_NODE]["inputs"]["video"] = video
+        g["16"]["inputs"]["ref_videos.ref_video_0"] = [VIDEO_NODE, 0]
+        g["16"]["inputs"]["ref_video_audios.ref_video_audio_0"] = [VIDEO_NODE, 2]
+    else:
+        g.pop(VIDEO_NODE, None)
+        for key in ("ref_videos.ref_video_0", "ref_video_audios.ref_video_audio_0"):
+            g["16"]["inputs"].pop(key, None)
     if mode == "continue":
         if not anchor:
             raise web.HTTPBadRequest(text="衔接模式需要一个锚点（上一段末帧或指定图片）")
         g[ANCHOR_NODE]["inputs"]["image"] = anchor
     return g
+
+
+CALIB_FILE = HERE / "calib.json"
+
+
+def load_calib() -> list[dict]:
+    try:
+        if CALIB_FILE.exists():
+            d = json.loads(CALIB_FILE.read_text(encoding="utf-8"))
+            return d.get("samples", [])
+    except Exception:
+        pass
+    return []
+
+
+def add_calib(steps: int, frames: int, images: int, seconds: float) -> None:
+    """记录一次真实耗时，用于本机自适应估算。"""
+    if not seconds or steps <= 0 or frames <= 0:
+        return
+    samples = load_calib()
+    samples.append({"steps": int(steps), "frames": int(frames),
+                    "images": int(max(1, images)), "seconds": round(float(seconds), 1),
+                    "at": int(time.time())})
+    samples = samples[-60:]
+    try:
+        tmp = CALIB_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"samples": samples}, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(CALIB_FILE)
+    except Exception as exc:
+        print(f"[warn] 校准数据落盘失败：{exc}")
+
+
+def estimate_seconds(duration: float, quality: str, n_images: int) -> int | None:
+    """本机没跑过就返回 None（前端只显示倍率）；有样本才给绝对秒数。"""
+    samples = load_calib()
+    if not samples:
+        return None
+    frames = frames_for(duration)
+    steps = QUALITY[quality]["steps"]
+    ref = sorted(s["steps"] for s in samples)[len(samples) // 2]     # 参考步数
+    base = [s for s in samples if s["steps"] == ref] or samples
+    per_run = sorted(s["seconds"] for s in base)[len(base) // 2]
+    est = per_run * (steps / ref) * (frames / 73)
+    if n_images > 1:
+        est *= 1 + min(n_images - 1, 6) * 0.09
+    return int(est)
 
 
 def last_frame_png(video: Path, dst: Path) -> None:
@@ -225,6 +304,18 @@ async def job_worker(app, job_id: str, pid: str):
                 save_jobs()
             if entry:
                 st = (entry.get("status") or {}).get("status_str")
+                # 记录真实执行耗时（不含排队），用于本机自适应校准
+                if st != "error":
+                    try:
+                        msgs = (entry.get("status") or {}).get("messages") or []
+                        t0 = next((m[1]["timestamp"] for m in msgs if m[0] == "execution_start"), None)
+                        t1 = next((m[1]["timestamp"] for m in msgs if m[0] == "execution_success"), None)
+                        if t0 and t1:
+                            job["actual"] = round((t1 - t0) / 1000, 1)
+                            add_calib(job.get("steps") or 0, job.get("frames") or 0,
+                                      len(job.get("images") or []), job["actual"])
+                    except Exception:
+                        pass
                 if st == "error":
                     job["state"] = "failed"
                     job["error"] = json.dumps((entry.get("status") or {}).get("messages"))[:600]
@@ -277,7 +368,7 @@ def _video_meta(p: Path) -> dict | None:
         v = vs[0].codec_context
         return {"name": p.name, "rel": str(p.relative_to(OUTPUT_DIR)).replace("\\", "/"),
                 "mb": round(p.stat().st_size / 1024 / 1024, 2), "dur": dur,
-                "w": v.width, "h": v.height, "mtime": int(p.stat().st_mtime)}
+                "w": v.width, "h": v.height, "mtime": int(p.stat().st_mtime), "abs": str(p.resolve())}
     except Exception:
         return None
 
@@ -435,6 +526,31 @@ async def api_uploaded(req):
     return web.FileResponse(p)
 
 
+async def api_upload_video(req):
+    """上传参考视频：原样存进 ComfyUI 的 input 目录（不转码）。"""
+    reader = await req.multipart()
+    saved = []
+    while True:
+        part = await reader.next()
+        if part is None:
+            break
+        if part.name != "video":
+            continue
+        ext = Path(part.filename or "clip.mp4").suffix.lower() or ".mp4"
+        if ext not in (".mp4", ".webm", ".mkv", ".mov", ".avi"):
+            raise web.HTTPBadRequest(text=f"不支持的视频格式 {ext}")
+        name = f"refvid_{uuid.uuid4().hex[:10]}{ext}"
+        dst = INPUT_DIR / name
+        with open(dst, "wb") as fh:
+            while True:
+                chunk = await part.read_chunk()
+                if not chunk:
+                    break
+                fh.write(chunk)
+        saved.append(name)
+    return web.json_response({"names": saved})
+
+
 async def api_inputimg(req):
     p = INPUT_DIR / req.match_info["name"]
     if not p.exists():
@@ -452,7 +568,26 @@ async def api_generate(req):
         return web.json_response({"error": "时长需在 1–15 秒之间"}, status=400)
     images = [n for n in (body.get("images") or []) if n][:MAX_REFS]
     mode = body.get("mode") or "single"
+    quality = body.get("quality") or "fine"
+    if quality not in QUALITY:
+        return web.json_response({"error": f"未知画质档位 {quality}，可选 fast / fine / ultra"}, status=400)
     anchor = body.get("anchor") or None
+    video = body.get("video") or None
+    if video:
+        # 既支持 input 目录里的文件名，也支持已有成片的绝对路径（VHS 接受绝对路径）
+        cand = Path(video)
+        src = cand if cand.is_absolute() else (INPUT_DIR / cand.name)
+        if not src.exists():
+            return web.json_response({"error": f"参考视频不存在：{video}"}, status=400)
+        try:
+            dur = float(av.open(str(src)).duration) / 1e6
+            if dur < 1.5:
+                return web.json_response({"error": f"参考视频太短（{dur:.1f} 秒），需要 2–15 秒"}, status=400)
+        except Exception:
+            pass
+        video = str(src) if src.is_absolute() else src.name
+    if mode == "swap" and not video:
+        return web.json_response({"error": "「视频改人物」必须提供一段参考视频"}, status=400)
     if mode == "continue":
         if anchor and anchor.endswith((".mp4", ".webm", ".mkv")):
             src = (OUTPUT_DIR / anchor).resolve()
@@ -471,7 +606,7 @@ async def api_generate(req):
         else:
             return web.json_response({"error": "衔接模式请选择一条视频或上传一张锚点图"}, status=400)
 
-    graph = build_graph(prompt, duration, images, mode, anchor)
+    graph = build_graph(prompt, duration, images, mode, anchor, quality, video)
     try:
         async with ClientSession() as s:
             r = await s.post(f"{COMFY}/prompt", json={"prompt": graph, "client_id": CLIENT_ID})
@@ -482,12 +617,17 @@ async def api_generate(req):
         return web.json_response({"error": f"连不上 ComfyUI：{exc}"}, status=502)
 
     jid = uuid.uuid4().hex[:12]
+    est = estimate_seconds(duration, quality, len(images))
     JOBS[jid] = {"id": jid, "pid": data["prompt_id"], "state": "queued", "started": time.time(),
                  "frames": frames_for(duration), "duration": duration, "mode": mode,
+                 "quality": quality, "qualityLabel": QUALITY[quality]["label"],
+                 "steps": QUALITY[quality]["steps"], "estimated": est, "video": video or "",
                  "prompt": prompt, "images": images}
     asyncio.create_task(job_worker(req.app, jid, data["prompt_id"]))
     save_jobs()
-    return web.json_response({"job": jid, "pid": data["prompt_id"], "frames": frames_for(duration)})
+    return web.json_response({"job": jid, "pid": data["prompt_id"], "frames": frames_for(duration),
+                              "steps": QUALITY[quality]["steps"], "estimated": est, "video": video or "",
+                              "quality": quality})
 
 
 async def api_job(req):
@@ -543,6 +683,7 @@ def main():
     app.router.add_get("/api/uploaded/{name}", api_uploaded)
     app.router.add_get("/api/inputimg/{name}", api_inputimg)
     app.router.add_post("/api/upload", api_upload)
+    app.router.add_post("/api/upload_video", api_upload_video)
     app.router.add_post("/api/generate", api_generate)
     app.router.add_get("/api/job/{id}", api_job)
     app.router.add_get("/api/jobs", api_jobs)

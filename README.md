@@ -181,3 +181,39 @@ powershell -ExecutionPolicy Bypass -File .\make-shortcut.ps1   # 首次：建桌
 ## 更新日志
 
 见 [CHANGELOG.md](CHANGELOG.md)。当前 `VERSION` 会随每次改动递增并打 tag。
+
+## 画质三档（WebUI 顶部切换，也可 `quality: fast|fine|ultra`）
+
+| 档位 | 配置 | 3 秒片实测 | 适用 |
+|---|---|---|---|
+| 快速 | pruned 蒸馏 LoRA + **4 步** | 98 s | 试创意、调提示词 |
+| 精细 | **无 LoRA** + 8 步 | 157.6 s | 默认出片 |
+| 极精细 | 无 LoRA + 20 步 | ≈1.85× | 最终成片、复杂镜头 |
+
+**为什么这样配**（同 8 步实测）：无 LoRA 157.6 s / pruned LoRA 188.9 s / 非剪枝 LoRA 190.1 s —— 同步数下挂 LoRA 是负优化；但降到 4 步时基模直接崩（79.9 s 但画面废），必须用 **pruned 适配**的蒸馏 LoRA。非剪枝 LoRA 在剪枝基模上无效（HF 文件卡：AdaLN 适配器已被移除）。
+
+## 参考图与参考视频
+
+| 类型 | 上限 | 说明 |
+|---|---|---|
+| 参考图 `ref_images` | **9 张** | 提示词用 `<Picture 1>`…`<Picture 9>` |
+| 参考视频 `ref_videos` | 1 段（2–15 秒 / 24fps） | 提示词用 `<Video 1>`，原声作 `<Audio 1>` |
+| 参考音频 `ref_audios` | 3 条 | 本 WebUI 未接线 |
+
+**时长规则**：参考视频**不决定**成片时长（成片由「时长」滑块决定，5–15 秒）；想让动作演完整，参考视频与成片时长尽量接近。参考视频会把帧喂进每一步注意力，实测 3 秒片从 113 s 涨到 **310.9 s**。
+
+## 三种生成模式
+
+| 模式 | 干什么 | 用到的节点 |
+|---|---|---|
+| 单段生成 | 参考图 + 提示词直接出 | — |
+| 衔接上一段 | 把上段**末帧**钉在新段第 0 帧 | `47` LoadImage + `48` MiniMaxH3AddGuide |
+| 视频改人物 | 参考视频定动作运镜，参考图定人物 | `50` VHS_LoadVideoPath → `ref_videos` |
+
+## 三段式提示词
+
+① 参考说明（**随图片/视频数量自动生成**，可手改，`恢复自动说明` 按钮可还原）
+② 动作精细描写（每段最多 2 个动作、动作要量化、写承接、情绪外化）
+③ 镜头描写（17 条官方三段式预设：**方向 + 幅度/速度 + 落点**）
+
+> H3 只认三段式运镜句。`camera moves left` 出来是静止的；`The camera pans left with large amplitude at slow speed, revealing the window behind her.` 才动得起来。

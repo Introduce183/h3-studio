@@ -1,3 +1,6 @@
+> **给 DSH agent 的执行指令（当前基线 v1.4.0）**：v1.4.0 起新增三档画质、9 张参考图、参考视频、视频改人物模式与三段式提示词；
+> 相关小节见第 6.5 / 6.6 节。落地命令一律用仓库里的 sync.ps1，不要手工拷文件。
+
 > **（仓库版说明）** 本文原先是配 zip 包用的；现在项目在 GitHub 上，包已不需要——直接 git clone 这个仓库即可，workflows/、webui/、docs/、
 efs/ 的对应物分别是仓库里的 workflows/、webui/、docs/（参考图未入库，用你自己的）。下面第 1 节的复制命令把 <解压目录> 换成仓库根目录即可。
 
@@ -149,7 +152,40 @@ loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors
 - **时长换算**：`f = max(5, round(秒×24))`，吸附 `f += (5 - f % 17) % 17`。3 秒→73、5 秒→124、15 秒→362。训练区间 **5–15 秒**。
 - **参数**：8 步、`euler`/`simple`、LoRA 强度 1.0、768×1024。
 
-模板节点 id 速查：`1` UNETLoader、`7` LoRA、`10` CLIPLoader、`17`/`18` VAE、`12`+`40`–`45` 参考图、`16` ReferenceToVideo、`20` RandomNoise、`21`/`22` 采样器、`33` VHS_VideoCombine、`47` 锚点图、`48` AddGuide。
+模板节点 id 速查（v1.4.0）：
+`1` UNETLoader、`7` LoraLoaderModelOnly、`10` CLIPLoader、`17`/`18` VAE、`20` RandomNoise、`21`/`22` 采样器、`33` VHS_VideoCombine、`16` MiniMaxH3ReferenceToVideo、`47` 续接锚点图、`48` MiniMaxH3AddGuide、**`50` VHS_LoadVideoPath（参考视频 → `ref_videos` + `ref_video_audios`）**。
+
+参考图槽位：`12`、`40`、`41`、`42`、`43`、`44`、`45`、`46`、`49` → `ref_images.ref_image_0..8`（**最多 9 张**，模型 autogrow 上限）。
+
+## 6.5 v1.4.0 新增能力（WebUI 侧重）
+
+| 能力 | 说明 | 依赖 |
+|---|---|---|
+| 三档画质 | `quality: fast`（pruned LoRA + 4 步）/ `fine`（无 LoRA + 8 步）/ `ultra`（无 LoRA + 20 步） | fast 档需要 `minimax_h3_dmd_ref2va_8step_turbo_pruned.safetensors`，缺了就只剩 8 步效果 |
+| 9 张参考图 | 之前模板只接了 7 个槽，模型其实支持 9 | 无 |
+| 参考视频 | 2–15 秒 / 24fps，提示词用 `<Video 1>`、音频 `<Audio 1>`；**不决定成片时长** | 需要 VideoHelperSuite（`VHS_LoadVideoPath`） |
+| 视频改人物 | 视频定动作 + 图片定人物，相当于"换角重演" | 同上 |
+| 三段式提示词 | ① 参考说明自动生成 ② 动作描写 ③ 镜头描写（17 条官方三段式预设） | 无 |
+| 上传视频 | `POST /api/upload_video` | 无 |
+
+**性能事实**（8 GB 笔记本实测，3 秒 / 73 帧 / 1 图）：无 LoRA 8 步 157.6 s；pruned LoRA 8 步 188.9 s；非剪枝 LoRA 8 步 190.1 s；无 LoRA 4 步 79.9 s（但画面崩坏，不可用）；pruned LoRA 4 步 98 s；**加参考视频后 310.9 s**。
+
+**结论**：同步数下挂 LoRA 是负优化；LoRA 的价值是"买更低步数"，且必须是 **pruned 适配版**（非剪枝版的 AdaLN 适配器在剪枝基模上会被移除）。
+
+## 6.6 升级到 v1.4.0 的步骤
+
+```powershell
+cd <项目目录>
+git pull
+powershell -ExecutionPolicy Bypass -File .\sync.ps1     # 同步模板到 DSH 插件目录
+# 模板变了，必须重载插件：
+# plugin_manager action=set_bundle target=dsh-comfyui-workbench enabled=false
+# plugin_manager action=set_bundle target=dsh-comfyui-workbench enabled=true
+```
+
+验证：`comfyui_workflow {workflowId:"minimax-h3-ref2v-community-multi"}` 应看到 `missingNodes: []`，
+且节点清单里有 `VHS_LoadVideoPath`（节点 `50`）；`inputs` 里应有 `image1..image9` 和 `ref_video`。
+
 
 ---
 

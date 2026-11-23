@@ -185,6 +185,22 @@
       "ref_images.ref_image_6": [
         "45",
         0
+      ],
+      "ref_images.ref_image_7": [
+        "46",
+        0
+      ],
+      "ref_images.ref_image_8": [
+        "49",
+        0
+      ],
+      "ref_videos.ref_video_0": [
+        "50",
+        0
+      ],
+      "ref_video_audios.ref_video_audio_0": [
+        "50",
+        2
       ]
     }
   },
@@ -332,6 +348,30 @@
     "class_type": "LoadImage",
     "inputs": {
       "image": "hero_ref_7.png"
+    }
+  },
+  "46": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_8.png"
+    }
+  },
+  "49": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "hero_ref_9.png"
+    }
+  },
+  "50": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "",
+      "force_rate": 24,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 360,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
     }
   }
 }

@@ -204,6 +204,23 @@
       "type": "boolean",
       "bind": "33.inputs.save_output",
       "default": true
+    },
+    {
+      "name": "image1",
+      "label": "参考图 1",
+      "type": "image",
+      "group": "basic",
+      "bind": "12.inputs.image",
+      "default": "hero_ref_1.png"
+    },
+    {
+      "name": "ref_video",
+      "label": "参考视频（2–15 秒）",
+      "type": "string",
+      "group": "basic",
+      "bind": "50.inputs.video",
+      "default": "",
+      "hint": "ComfyUI input 目录里的视频文件名；留空则不用视频参考。喂 <Video 1>。"
     }
   ],
   "internalInputs": [

@@ -161,6 +161,14 @@
       "ref_images.ref_image_0": [
         "12",
         0
+      ],
+      "ref_videos.ref_video_0": [
+        "50",
+        0
+      ],
+      "ref_video_audios.ref_video_audio_0": [
+        "50",
+        2
       ]
     }
   },
@@ -272,6 +280,18 @@
       "pix_fmt": "yuv420p",
       "save_metadata": true,
       "trim_to_audio": false
+    }
+  },
+  "50": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "",
+      "force_rate": 24,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 360,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
     }
   }
 }

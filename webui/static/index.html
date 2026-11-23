@@ -27,6 +27,7 @@
   .row label{color:var(--dim);font-size:12px;min-width:56px}
   input[type=range]{flex:1;accent-color:var(--acc)}
   select,input[type=number]{background:#16161a;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:13px inherit;flex:1;min-width:0}
+  #refVideo{width:100%;max-width:100%;box-sizing:border-box;display:block;margin-top:2px}
   .pill{font-size:12px;color:var(--dim)}
   button.primary{width:100%;margin-top:14px;padding:11px;border:0;border-radius:10px;background:var(--acc);color:#fff;font-size:14px;font-weight:600;cursor:pointer}
   button.primary:disabled{background:#333;color:#777;cursor:not-allowed}
@@ -47,6 +48,15 @@
   .hist div{display:flex;gap:8px;font-size:12px;color:var(--dim);padding:4px 0;border-bottom:1px solid #222}
   .hist span:first-child{color:var(--txt)}
   .err{color:var(--err);font-size:12px;margin-top:8px;white-space:pre-wrap}
+  .tip{position:relative;display:inline-flex;width:15px;height:15px;border-radius:50%;background:#2a2a33;color:var(--dim);font-size:11px;line-height:1;align-items:center;justify-content:center;cursor:help;border:1px solid var(--line);flex:0 0 auto}
+  .tip:hover,.tip:focus{color:#fff;border-color:var(--acc);outline:none}
+  .tipbox{display:none;position:absolute;top:22px;left:-40px;width:320px;background:#1b1b22;border:1px solid var(--line);border-radius:10px;padding:10px 12px;z-index:60;box-shadow:0 10px 28px #000b;font-size:12px;color:var(--txt);line-height:1.65;text-align:left;font-weight:400}
+  .tip:hover .tipbox,.tip:focus .tipbox{display:block}
+  .tipbox b{color:#cfe2ff}
+  .tipbox i{color:var(--warn);font-style:normal}
+  .tipbox table{width:100%;border-collapse:collapse;margin:4px 0}
+  .tipbox td{padding:2px 3px;vertical-align:top;border-bottom:1px solid #24242b}
+  .tipbox td:first-child{color:#ffd24a;white-space:nowrap;width:64px}
   .lib{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:430px;overflow:auto;padding-right:2px}
   .lib .item{position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:pointer;background:#16161a;transition:.12s}
   .lib .item .no{position:absolute;top:4px;left:4px;background:#000c;color:#ffd24a;font-size:11px;padding:1px 6px;border-radius:6px;font-weight:600}
@@ -68,31 +78,157 @@
 <main>
   <section>
     <div class="card">
-      <h2>参考图（最多 7 张）</h2>
+      <h2 style="display:flex;align-items:center;gap:5px">参考图（最多 9 张）
+        <span class="tip" tabindex="0" aria-label="参考图说明">!<span class="tipbox">
+          <b>参考图怎么用</b><br>
+          · 最多 <b>9 张</b>（模型上限），第一张主要定外貌与画风<br>
+          · 提示词里用 <b>&lt;Picture 1&gt;…&lt;Picture 9&gt;</b> 指代，编号照上传顺序<br>
+          · 每多一张约 <b>+9%</b> 耗时；3~4 张通常就够保身份<br>
+          · 建议：正面/侧面/背面 + 服装细节各一张
+        </span></span>
+      </h2>
       <div id="drop">点击或拖入图片<br><span class="pill">支持 png / jpg / webp</span></div>
       <input id="file" type="file" accept="image/*" multiple hidden>
       <div id="thumbs"></div>
     </div>
 
     <div class="card" style="margin-top:14px">
-      <h2>提示词</h2>
-      <textarea id="prompt">参考 <Picture 1>–<Picture 7> 中的同一角色：外貌、服装、发型与画风以参考图为准，不要改变。
+      <div class="libhead" style="margin-bottom:6px">
+        <h2 style="margin:0;display:flex;align-items:center;gap:5px">参考视频 <span class="pill">可选</span>
+          <span class="tip" tabindex="0" aria-label="参考视频说明">!<span class="tipbox">
+            <b>参考视频能干什么</b><br>
+            · 模型会参考它的<b>动作、节奏、运镜、风格</b>，但<b>不会</b>逐帧复制画面<br>
+            · 想要"帧级对齐"请用「衔接上一段」（那是 AddGuide 锚点）<br>
+            · 提示词里用 <b>&lt;Video 1&gt;</b> 指代，可同时用 <b>&lt;Picture N&gt;</b><br>
+            · 视频自带的声音也会作为参考音频（&lt;Audio&gt;）
+            <br><br>
+            <b>时长限制（重要）</b><br>
+            · 参考视频必须 <b>2–15 秒</b>，按 <b>24fps</b> 读取，超过 15 秒只取前 15 秒<br>
+            · 它<b>不决定</b>成片时长——成片时长由上面的「时长」滑块决定（5–15 秒）<br>
+            · 想要"动作演完整"：参考视频和成片时长尽量接近（比如都用 5 秒）
+          </span></span>
+        </h2>
+        <button id="vidClear">清除</button>
+      </div>
+      <select id="refVideo"><option value="">（不使用视频参考）</option></select>
+      <div class="row" style="margin-top:8px">
+        <label>或上传</label>
+        <input id="vidFile" type="file" accept="video/*">
+      </div>
+      <div class="pill" id="vidHint">2–15 秒；选已有成片或上传新视频</div>
+    </div>
 
-[Shot 1] 固定镜头，close-up portrait，head and shoulders，人物上半身近景。
-0.0–1.5 秒：双手举到脸旁做猫爪，歪头眨眼。
-1.5–3.0 秒：双手在胸前比出爱心，轻轻晃动。
+    <div class="card" style="margin-top:14px">
+      <h2 style="display:flex;align-items:center;gap:6px">提示词
+        <span class="tip" tabindex="0" aria-label="提示词写法">!<span class="tipbox">
+          <b>三段式怎么写</b><br>
+          · <b>① 参考说明</b>：会自动跟着你上传的图片/视频数量改写，一般不用动<br>
+          · <b>② 动作描写</b>：按秒写，<b>每段最多 2 个动作</b>，必须铺满整段时长<br>
+          · <b>③ 镜头描写</b>：写景别与运镜，要给"落点"<br>
+          <br>
+          <b>常见错误</b><br>
+          · 只写「[Shot 1]」但时长 10 秒 → 后半段模型自己填空，主体会消失<br>
+          · 同时写「保持构图不变」和「推镜」→ 自相矛盾，必崩<br>
+          · 只写「小幅度慢速推进」不给终点 → 会一路推过头
+        </span></span>
+      </h2>
 
-镜头固定，面部清晰，细节丰富。</textarea>
+      <div class="pill" style="margin:2px 0 4px">① 参考说明（随参考图 / 视频自动更新）</div>
+      <textarea id="pRef" style="min-height:66px"></textarea>
+      <div class="row" style="margin-top:4px">
+        <button id="refReset" style="padding:4px 10px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:#1e1e24;color:var(--dim);cursor:pointer">恢复自动说明</button>
+        <span class="pill" id="refDirty" style="margin-left:auto"></span>
+      </div>
+
+      <div class="pill" style="margin:10px 0 4px">② 动作精细描写
+        <span class="tip" tabindex="0" aria-label="动作写法">!<span class="tipbox">
+          <b>动作怎么写才演得出来</b><br>
+          · <b>每段最多 2 个动作</b>，写多了模型只挑一个做<br>
+          · 动作要<b>量化</b>：缓慢抬手 / 轻轻歪头 / 小幅晃动（带幅度与速度）<br>
+          · <b>写承接</b>：「借着转身的惯性顺势抬手」比两个孤立动作连贯<br>
+          · 优先<b>低缓连续</b>的小动作；狂奔、翻滚这类高爆发动作容易崩<br>
+          · <b>情绪外化</b>：别写"很开心"，写"眯眼笑、肩膀轻晃"<br>
+          · 时间轴要<b>铺满</b>整段时长，别留空
+        </span></span>
+      </div>
+      <textarea id="pAction" style="min-height:104px">[Shot 1] close-up portrait，head and shoulders，人物上半身近景。
+0.0–1.5 秒：双手缓慢举到脸旁做猫爪，轻轻歪头，眨眼一次。
+1.5–3.0 秒：双手顺势收到胸前比出爱心，身体小幅晃动，眯眼笑。</textarea>
+
+      <div class="pill" style="margin:10px 0 4px">③ 镜头描写
+        <span class="tip" tabindex="0" aria-label="运镜写法">!<span class="tipbox">
+          <b>H3 只认"三段式"运镜句</b><br>
+          官方案例：<i>The camera pushes in with small amplitude at slow speed toward the open watch case between his hands.</i><br>
+          · <b>方向</b>：push in / pan left / arc around…<br>
+          · <b>幅度 + 速度</b>：with small / large amplitude at slow / fast speed<br>
+          · <b>落点</b>：toward X、revealing Y、as Z exits the frame<br>
+          <br>
+          <b>三条硬规则</b><br>
+          · <b>一条镜头只写一个主运镜</b>，别叠加（"边推边摇"模型只会挑一个做）<br>
+          · <b>必须给落点</b>——只写"慢速推进"会一路推过头<br>
+          · 别同时写"构图不变"和"推镜"，自相矛盾
+        </span></span>
+      </div>
+      <div class="row" style="margin-bottom:4px">
+        <label>预设</label>
+        <select id="camPreset">
+          <option value="">（用下面的自定义文本）</option>
+        </select>
+      </div>
+      <textarea id="pCam" style="min-height:64px">The camera holds perfectly still, framing the character from the chest up as a medium close-up.</textarea>
       <div class="row">
         <label>时长</label>
         <input id="dur" type="range" min="1" max="15" step="0.5" value="3">
-        <span class="pill" id="durLabel" style="min-width:96px;text-align:right"></span>
+        <span class="pill" id="durLabel" style="min-width:150px;text-align:right"></span>
       </div>
       <div class="row">
-        <label>模式</label>
+        <label style="display:flex;align-items:center;gap:5px;min-width:56px">画质
+          <span class="tip" tabindex="0" aria-label="画质档位说明">!<span class="tipbox">
+            <b>三档画质怎么选</b>
+            <table>
+              <tr><td>快速</td><td><b>4 步</b> + pruned 蒸馏 LoRA。用来试创意、调提示词、试动作。<br><i>耗时 0.72×</i></td></tr>
+              <tr><td>精细</td><td><b>8 步</b>，不挂 LoRA。默认出片档，速度与画质最平衡。<br><i>耗时 1.0×（基准）</i></td></tr>
+              <tr><td>极精细</td><td><b>20 步</b>，不挂 LoRA。基模常规质量档，适合最终成片、复杂镜头。<br><i>耗时约 1.85×</i></td></tr>
+            </table>
+            <b>倍率说明</b>：以「精细」为 1.0×，实际秒数取决于你的显卡 —— 同一倍率下，快显卡整体更快，但三档之间的比例基本不变。
+            <br><br>
+            <b>为什么这样配</b><br>
+            · 基模（无 LoRA）4 步会直接崩，所以快速档必须挂 pruned 蒸馏 LoRA<br>
+            · 8/20 步挂 LoRA 反而更慢（多加载 2 GB 权重）且更软，所以精细档不挂<br>
+            · 参考图越多越慢，每多一张约 +9% 耗时
+          </span></span>
+        </label>
+        <div class="tabs" style="flex:1;margin:0">
+          <button id="qFast" title="pruned 蒸馏 LoRA · 4 步">快速</button>
+          <button id="qFine" class="active" title="无 LoRA · 8 步">精细</button>
+          <button id="qUltra" title="无 LoRA · 20 步">极精细</button>
+        </div>
+      </div>
+      <div class="pill" id="qHint" style="margin-top:2px"></div>
+      <div class="row">
+        <label style="display:flex;align-items:center;gap:5px;min-width:56px">模式
+          <span class="tip" tabindex="0" aria-label="模式说明">!<span class="tipbox">
+            <b>三种模式的区别</b>
+            <table>
+              <tr><td>单段生成</td><td>从参考图 + 提示词直接生成一段，不受上一段约束。<br><i>适合开新镜头、换场景</i></td></tr>
+              <tr><td>衔接上一段</td><td>把选定视频的<b>最后一帧</b>钉在新片段的第 0 帧（AddGuide 锚点），动作和构图接着走。<br><i>适合接着往下演、做长片</i></td></tr>
+              <tr><td>视频改人物</td><td>用<b>参考视频</b>定动作/节奏/运镜，用<b>参考图</b>定人物长相与服装，生成"同一个动作、换个人演"。<br><i>适合翻拍、换角</i></td></tr>
+            </table>
+            <b>衔接怎么用</b><br>
+            · 在「衔接源」里选一条已有视频，或上传一张锚点图<br>
+            · 新提示词只写<b>接下来发生什么</b>，不要再写外貌（锚点已经定住了）<br>
+            · 每段建议 3~5 秒；要更长就做完一段再点「以此续接下一段」
+            <br><br>
+            <b>视频改人物怎么用</b><br>
+            · 先在下面选/传一段 <b>2–15 秒</b>的参考视频（它提供动作）<br>
+            · 再上传参考图（提供长相/服装），提示词写 <b>&lt;Video 1&gt;</b> 的动作 + <b>&lt;Picture 1&gt;</b> 的人物<br>
+            · 提示词示例：「参考 &lt;Picture 1&gt; 的角色外貌，按 &lt;Video 1&gt; 的动作和运镜重演一遍，不要改变人物外貌」
+          </span></span>
+        </label>
         <div class="tabs" style="flex:1;margin:0">
           <button id="modeSingle" class="active">单段生成</button>
           <button id="modeCont">衔接上一段</button>
+          <button id="modeSwap">视频改人物</button>
         </div>
       </div>
       <div id="contBox" style="display:none">
@@ -142,6 +278,8 @@
 const $ = (s) => document.querySelector(s);
 let images = [];          // ComfyUI input 里的文件名
 let mode = 'single';
+let quality = 'fine';
+let refVideoPath = '';    // 参考视频：绝对路径 或 input 目录里的文件名
 let current = null;       // 当前 job
 let contAnchor = null;    // {type:'video'|'image', value:''}
 
@@ -149,18 +287,77 @@ function setMode(m){
   mode = m;
   $('#modeSingle').classList.toggle('active', m==='single');
   $('#modeCont').classList.toggle('active', m==='continue');
+  $('#modeSwap').classList.toggle('active', m==='swap');
   $('#contBox').style.display = m==='continue' ? 'block' : 'none';
+  if(m==='swap'){
+    $('#vidHint').textContent = refVideoPath
+      ? '会用它定动作/节奏，用参考图定人物'
+      : '⚠ 视频改人物必须先选一段参考视频（2–15 秒）';
+    $('#qHint').textContent = '视频定动作，图片定人物 —— 提示词用 <Video 1> 指代动作、<Picture N> 指代人物';
+  }
 }
 $('#modeSingle').onclick = ()=>setMode('single');
 $('#modeCont').onclick = ()=>setMode('continue');
+$('#modeSwap').onclick = ()=>setMode('swap');
+
+// ---- 参考视频 ----
+function setRefVideo(path, label){
+  refVideoPath = path || '';
+  $('#vidHint').textContent = refVideoPath
+    ? '已选：' + (label || refVideoPath.split(/[\\/]/).pop())
+    : '2–15 秒；选已有成片或上传新视频';
+  refreshRefText();
+}
+$('#vidClear').onclick = ()=>{ setRefVideo(''); $('#refVideo').value = ''; $('#vidFile').value = ''; };
+$('#refVideo').onchange = e => {
+  const opt = e.target.selectedOptions[0];
+  setRefVideo(e.target.value, opt ? opt.textContent : '');
+};
+$('#vidFile').onchange = async e => {
+  const f = e.target.files[0];
+  if(!f) return;
+  const fd = new FormData(); fd.append('video', f);
+  $('#vidHint').textContent = '上传中…';
+  try{
+    const r = await fetch('/api/upload_video', {method:'POST', body:fd});
+    const j = await r.json();
+    if(!r.ok || !j.names || !j.names.length){ $('#vidHint').textContent = j.error || '上传失败'; return; }
+    setRefVideo(j.names[0], f.name);
+    $('#refVideo').value = '';
+  }catch(err){ $('#vidHint').textContent = '上传失败：' + err.message; }
+};
 
 function durText(v){
   const f = Math.max(5, Math.round(v*24));
   const frames = f + (5 - f%17)%17;
-  return `${v} 秒 · ${frames} 帧`;
+  return `${v} 秒 · ${frames} 帧 · ${fmtRatio(quality)}`;
 }
+
+// 与后端 estimate_seconds 对齐：71 帧基准 × 参考图数量加成
+const QRATIO = {fast:0.72, fine:1, ultra:1.85};
+const QDESC = {
+  fast: 'pruned 蒸馏 LoRA · 4 步 · 耗时 0.7×（相对精细档）',
+  fine: '无 LoRA · 8 步 · 耗时 1.0×（基准）',
+  ultra: '无 LoRA · 20 步 · 耗时 1.9×'
+};
+function fmtRatio(q){
+  const r = QRATIO[q] || 1;
+  const imgs = images.length > 1 ? ` · 参考图 ×${images.length}` : '';
+  return `耗时 ${r.toFixed(r < 1 ? 2 : 1)}×${imgs}`;
+}
+function setQuality(q){
+  quality = q;
+  $('#qFast').classList.toggle('active', q==='fast');
+  $('#qFine').classList.toggle('active', q==='fine');
+  $('#qUltra').classList.toggle('active', q==='ultra');
+  $('#qHint').textContent = QDESC[q];
+  $('#durLabel').textContent = durText(parseFloat($('#dur').value));
+}
+$('#qFast').onclick = ()=>setQuality('fast');
+$('#qFine').onclick = ()=>setQuality('fine');
+$('#qUltra').onclick = ()=>setQuality('ultra');
 $('#dur').oninput = e => $('#durLabel').textContent = durText(e.target.value);
-$('#durLabel').textContent = durText(3);
+setQuality('fine');
 
 // 上传
 async function upload(files){
@@ -170,8 +367,10 @@ async function upload(files){
   $('#stageTxt') && ($('#err').textContent = '');
   const r = await fetch('/api/upload', {method:'POST', body:fd});
   const j = await r.json();
-  images = images.concat(j.names || []).slice(0,7);
+  images = images.concat(j.names || []).slice(0,9);
   renderThumbs();
+  refreshRefText();
+  $('#durLabel').textContent = durText(parseFloat($('#dur').value));
 }
 $('#drop').onclick = ()=>$('#file').click();
 $('#file').onchange = e => upload(e.target.files);
@@ -187,12 +386,101 @@ function renderThumbs(){
     d.className = 'thumb';
     d.innerHTML = `<b>${i+1}</b><img src="/api/inputimg/${encodeURIComponent(name)}">
       <button title="移除">×</button>`;
-    d.querySelector('button').onclick = ()=>{images.splice(i,1);renderThumbs();};
+    d.querySelector('button').onclick = ()=>{images.splice(i,1);renderThumbs();refreshRefText();};
     box.appendChild(d);
   });
 }
 
-// 提示词/时长/模式 → 生成
+// ---------- 运镜预设（按 H3 官方三段式：方向 + 幅度/速度 + 落点） ----------
+const CAM_PRESETS = [
+  ["固定镜头 · 中近景（推荐特写）",
+   "The camera holds perfectly still, framing the character from the chest up as a medium close-up."],
+  ["固定镜头 · 全身",
+   "The camera holds perfectly still in a wide shot, keeping the character head to toe inside the frame with a little air above and below."],
+  ["小幅缓推 · 停在近景",
+   "The camera pushes in with small amplitude at slow speed toward the character's face, coming to rest at a close-up."],
+  ["中幅推进 · 停在特写",
+   "The camera pushes in with medium amplitude at slow speed toward the character's eyes, coming to rest at an eye-level close-up."],
+  ["缓拉远 · 露出环境",
+   "The camera pulls out with small amplitude at slow speed, revealing the room around the character and settling at a medium shot."],
+  ["左摇 · 停在她身后",
+   "The camera pans left with large amplitude at slow speed, revealing what stands behind the character."],
+  ["右摇 · 停在她身侧",
+   "The camera pans right with medium amplitude at slow speed, settling on the space beside the character."],
+  ["环绕右 · 绕人半圈",
+   "The camera arcs around the character from the front to her right side with large amplitude at slow speed, coming to rest at a three-quarter view."],
+  ["环绕左 · 绕人半圈",
+   "The camera arcs around the character from the front to her left side with medium amplitude at slow speed, coming to rest at a three-quarter view."],
+  ["缓慢上摇 · 从手到脸",
+   "The camera tilts up with small amplitude at slow speed from her hands to her face, coming to rest on her eyes."],
+  ["缓慢下摇 · 从脸到脚",
+   "The camera tilts down with small amplitude at slow speed from her face to her feet, coming to rest on her shoes."],
+  ["跟随 · 同向平移",
+   "The camera tracks alongside the character with small amplitude at slow speed, holding her at the same size in frame as she moves."],
+  ["手持轻晃 · 贴身跟拍",
+   "The camera follows the character handheld with slight shake and small amplitude at walking speed, staying at a medium close-up."],
+  ["变焦推 · 聚焦眼睛",
+   "The camera zooms in with small amplitude at slow speed onto the character's eyes, coming to rest at a tight close-up."],
+  ["拉焦 · 人清背景虚",
+   "The camera holds still and racks focus with small amplitude at slow speed from the character's face to the background, coming to rest on the blurred room behind her."],
+  ["俯拍 · 越过头顶",
+   "The camera looks down from a high angle with small amplitude at slow speed, keeping the character centered as a medium shot."],
+  ["仰拍 · 从低处看",
+   "The camera looks up from a low angle with small amplitude at slow speed, keeping the character centered and framed against the ceiling."],
+];
+const camSel = $('#camPreset');
+CAM_PRESETS.forEach(([label, text], i)=>{
+  const o = document.createElement('option');
+  o.value = String(i); o.textContent = label; o.dataset.text = text;
+  camSel.appendChild(o);
+});
+camSel.onchange = e => {
+  const opt = e.target.selectedOptions[0];
+  if (opt && opt.dataset && opt.dataset.text) $('#pCam').value = opt.dataset.text;
+};
+
+let refDirty = false;
+
+function buildRefText(){
+  const n = images.length;
+  const hasVideo = !!refVideoPath;
+  const parts = [];
+
+  if (n === 1) {
+    parts.push("参考 <Picture 1> 中的角色：外貌、服装、发型与画风以参考图为准，不要改变。");
+  } else if (n > 1) {
+    parts.push(`参考 <Picture 1>–<Picture ${n}> 中的同一角色：外貌、服装、发型与画风以参考图为准，不要改变。`);
+  }
+
+  if (hasVideo) {
+    const who = n > 0 ? "人物外貌与服装以参考图为准" : "人物按下方描述生成";
+    parts.push(`动作、节奏与运镜参考 <Video 1>（其原声作为 <Audio 1>），${who}，不要照搬参考视频里的人物长相。`);
+  }
+
+  if (!parts.length) {
+    parts.push("不提供参考图与参考视频，完全依据下方描述生成。");
+  } else if (!hasVideo) {
+    parts.push("画面中只出现参考图里的这个角色，不要出现其他人。");
+  }
+  return parts.join("\n");
+}
+
+function composePrompt(){
+  return [$('#pRef').value.trim(), $('#pAction').value.trim(), $('#pCam').value.trim()]
+    .filter(Boolean).join("\n\n");
+}
+
+function refreshRefText(force){
+  if (refDirty && !force) { $('#refDirty').textContent = '已手动修改（自动说明不再覆盖）'; return; }
+  $('#pRef').value = buildRefText();
+  if (force) { refDirty = false; $('#refDirty').textContent = '自动'; }
+}
+
+$('#pRef').addEventListener('input', ()=>{ refDirty = true; $('#refDirty').textContent = '已手动修改（自动说明不再覆盖）'; });
+$('#refReset').onclick = ()=>refreshRefText(true);
+$('#pRef').value = buildRefText();
+$('#refDirty').textContent = '自动';
+
 $('#go').onclick = async ()=>{
   $('#err').textContent = '';
   if(mode==='continue' && !contAnchor){
@@ -200,11 +488,14 @@ $('#go').onclick = async ()=>{
     if(sel) contAnchor = {type:'video', value: sel};
   }
   const body = {
-    prompt: $('#prompt').value,
+    prompt: composePrompt(),
+    refText: $('#pRef').value,
     duration: parseFloat($('#dur').value),
     images,
+    quality,
     mode,
-    anchor: mode==='continue' ? (contAnchor && contAnchor.value) : null
+    anchor: mode==='continue' ? (contAnchor && contAnchor.value) : null,
+    video: refVideoPath || null
   };
   const r = await fetch('/api/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   const j = await r.json();
@@ -266,7 +557,7 @@ async function poll(id){
 function showResult(j){
   const src = `/api/gallery/${j.artifact}`;
   $('#stage').outerHTML = `<video id="stage" controls autoplay loop src="${src}"></video>`;
-  $('#meta').innerHTML = `<span>${j.artifact}</span><span>${j.duration ?? ''} 秒</span><span>${j.frames} 帧</span><span>模式：${j.mode==='continue'?'衔接':'单段'}</span>`;
+  $('#meta').innerHTML = `<span>${j.artifact}</span><span>${j.duration ?? ''} 秒</span><span>${j.frames} 帧</span><span>模式：${j.mode==='continue'?'衔接':'单段'}</span><span>画质：${j.qualityLabel || j.quality || ''}${j.steps ? ' · ' + j.steps + ' 步' : ''}</span>`;
   $('#actions').style.display='flex';
   $('#dl').href = src;
   $('#dl').download = j.artifact;
@@ -284,6 +575,16 @@ function showResult(j){
 
 async function loadOutputs(){
   const r = await fetch('/api/outputs'); const j = await r.json();
+  // 参考视频下拉（绝对路径，VHS 直接读）
+  const vsel = $('#refVideo');
+  const keep = vsel.value;
+  vsel.innerHTML = '<option value="">（不使用视频参考）</option>';
+  j.items.forEach(it=>{
+    const o = document.createElement('option');
+    o.value = it.abs; o.textContent = `#${it.no} · ${it.name} · ${it.dur}s`;
+    vsel.appendChild(o);
+  });
+  if(keep) vsel.value = keep;
   const sel = $('#contVideo');
   sel.innerHTML = '';
   j.items.slice(0,30).forEach(it=>{

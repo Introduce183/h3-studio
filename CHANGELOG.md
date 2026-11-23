@@ -8,6 +8,53 @@
 
 ---
 
+## v1.4.0 — 2026-11-23
+
+### 新增
+
+- **三档画质**（WebUI 顶部选择，也可 `quality: fast|fine|ultra`）
+  | 档位 | 配置 | 3 秒片实测 |
+  |---|---|---|
+  | 快速 | pruned 蒸馏 LoRA（`minimax_h3_dmd_ref2va_8step_turbo_pruned`）+ **4 步** | 98 s |
+  | 精细 | **无 LoRA** + 8 步 | 157.6 s |
+  | 极精细 | 无 LoRA + 20 步 | 约 1.85×（按 4/8 步实测拟合） |
+
+  依据：同 8 步下 LoRA 是**负优化**（无 LoRA 157.6 s vs 挂 LoRA 188.9/190.1 s，且画质更软）；但**降到 4 步必须有 pruned 适配 LoRA**——基模 4 步只有 79.9 s 但画面崩坏。非剪枝 LoRA（lightx2v 系列）在剪枝基模上无效，HF 文件卡也写明 AdaLN 适配器已被移除。
+
+- **参考图上限 7 → 9**（模型 `ref_images` autogrow 上限就是 9，之前是我们模板只接了 7 个槽）
+- **参考视频**：新增 `VHS_LoadVideoPath`（节点 `50`）→ `ref_videos.ref_video_0` + `ref_video_audios.ref_video_audio_0`
+  - 限制：**2–15 秒 / 24fps**，超过只取前 15 秒；**不决定成片时长**（成片仍由时长滑块控制）
+  - 提示词用 `<Video 1>` 指代，音频用 `<Audio 1>`
+  - 代价：视频参考的帧会参与每一步注意力，实测 3 秒片从 113 s 涨到 **310.9 s**
+- **新模式「视频改人物」**：参考视频定动作/运镜，参考图定人物，生成"同一动作换个人演"
+- **三段式提示词**：① 参考说明（按上传的图片/视频数量**自动生成**，可手动改并支持恢复自动）② 动作精细描写 ③ 镜头描写
+- **17 条运镜预设**：按 H3 官方三段式「方向 + 幅度/速度 + 落点」写成完整英文句，例如
+  `The camera pushes in with small amplitude at slow speed toward the character's face, coming to rest at a close-up.`
+- 接口：`POST /api/upload_video`（上传参考视频，原样存进 ComfyUI input）；`GET /api/outputs` 新增 `abs`（绝对路径，供 VHS 直接读）
+- 本机耗时校准：每完成一条就记一次真实执行时间到 `calib.json`（本机文件，**不入库**）
+
+### 修复
+
+- 参考视频下拉超出卡片宽度（`#refVideo` 是卡片直接子元素，`select{flex:1}` 不生效）
+- 送进 `/api/generate` 的 `estimated` 在没有校准样本时返回 `null`（前端只显示倍率，避免暴露某台机器的绝对耗时）
+
+### 升级动作
+
+```powershell
+cd <项目目录>
+powershell -ExecutionPolicy Bypass -File .\sync.ps1      # 拉代码 + 同步模板
+# 模板有变化，务必在 DSH 里重载插件：
+#   plugin_manager action=set_bundle target=dsh-comfyui-workbench enabled=false
+#   plugin_manager action=set_bundle target=dsh-comfyui-workbench enabled=true
+```
+
+需要"快速"档的话，确认 `models/loras/` 里有 `minimax_h3_dmd_ref2va_8step_turbo_pruned.safetensors`（2.13 GB，
+`https://hf-mirror.com/drbaph/MiniMax-H3-Turbo-Lora-ComfyUI/resolve/main/experimental/minimax_h3_dmd_ref2va_8step_turbo_pruned.safetensors`）；
+缺了也能用，只是"快速"档会退回 8 步无 LoRA 的效果。
+
+> 影响文件：`webui/app.py`、`webui/static/index.html`、`workflows/*`（3 套模板 + schema）、`README.md`、`给DSH的提示词.md`、`.gitignore`、`VERSION`
+
+---
 ## v1.3.2 — 2026-11-23
 
 ### 修改

@@ -38,6 +38,28 @@ H3完整复刻包.zip
 
 ---
 
+## 第 0 步：同步自查（**每次拿到新版本都要做，别跳**）
+
+先跑这一条，它会逐项打 ✓/✗：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\verify.ps1
+```
+
+**11 项必须全 ✓**，重点是这三个最容易漏的：
+
+1. **桌面一键启动快捷方式**：`H3 Studio.lnk` 必须存在且参数指向 `start-all.ps1`
+   - 不存在 → `powershell -ExecutionPolicy Bypass -File .\make-shortcut.ps1`
+   - 存在但指向别处 → 先删掉再重建
+   - 它决定了"双击启动时会不会自动带反向隧道"
+2. **`startup.json` 的隧道四件套**：`tunnelHost` / `tunnelUser` / `tunnelRemotePort` / `tunnelKey`
+   - 缺了 → 快捷方式能起 ComfyUI 和 WebUI，但**不会起隧道**，手机上打不开
+3. **`webui/config.json` 的 token**：公网暴露必须设，否则等于把出片能力公开
+
+**逐项对照本机状态**：打开 [`docs/项目结构.md`](docs/项目结构.md)，
+按"一、仓库文件"清单逐个 `Test-Path`；工作流模板要额外比哈希（`verify.ps1` 已包含）。
+任何本地缺文件、版本落后、模板不一致，都先修好再往下做，**不要带着不一致的状态验收**。
+
 ## 1. 装工作流模板
 
 把包里的 `workflows/*` 复制到 DSH 插件的模板目录：

@@ -20,6 +20,8 @@
 > 5. 要手机访问（DSH 用 DSH Go App；H3 WebUI 用自己的服务器转发）看 [`docs/远程访问.md`](docs/远程访问.md)。
 >
 > **一键同步（已部署过的机器）**：`powershell -ExecutionPolicy Bypass -File .\sync.ps1`
+> **同步后必跑自查**：`powershell -ExecutionPolicy Bypass -File .\verify.ps1`（11 项，含桌面快捷方式/隧道配置/口令）
+> 项目结构与逐项对比方法见 [`docs/项目结构.md`](docs/项目结构.md)。
 >
 > ⚠️ 三个最容易漏的点：
 > - 工作流模板要复制到 `%USERPROFILE%\.dsh-comfyui-workbench\workflows\`，**不是**放在仓库里就生效

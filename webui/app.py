@@ -683,6 +683,74 @@ def _restart_comfy() -> bool:
     return True
 
 
+IMG_EXT = (".png", ".jpg", ".jpeg", ".webp")
+ASSET_THUMBS = HERE / "asset_thumbs"
+
+
+def _asset_meta(p: Path) -> dict | None:
+    try:
+        st = p.stat()
+        if st.st_size < 1024:
+            return None
+        with Image.open(p) as im:
+            w, h = im.size
+            im.verify()
+        return {"name": p.name, "kb": round(st.st_size / 1024), "w": w, "h": h,
+                "mtime": int(st.st_mtime)}
+    except Exception:
+        return None
+
+
+async def api_assets(_req):
+    """素材库：列 ComfyUI input 目录里的图片。"""
+    items = []
+    for p in INPUT_DIR.iterdir():
+        if not p.is_file() or p.suffix.lower() not in IMG_EXT:
+            continue
+        m = _asset_meta(p)
+        if m:
+            items.append(m)
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return web.json_response({"items": items[:200], "total": len(items)})
+
+
+async def api_asset_thumb(req):
+    name = Path(req.query.get("name", "")).name
+    p = INPUT_DIR / name
+    if not name or not p.exists() or p.suffix.lower() not in IMG_EXT:
+        raise web.HTTPNotFound()
+    ASSET_THUMBS.mkdir(parents=True, exist_ok=True)
+    key = f"{abs(hash((name, int(p.stat().st_mtime)))):x}.jpg"
+    dst = ASSET_THUMBS / key
+    if not dst.exists():
+        def _make():
+            with Image.open(p) as im:
+                im = im.convert("RGB")
+                im.thumbnail((280, 280), Image.LANCZOS)
+                im.save(dst, quality=82)
+        try:
+            await asyncio.to_thread(_make)
+        except Exception:
+            raise web.HTTPNotFound(text="图片损坏或未传完")
+    return web.FileResponse(dst, headers={"Cache-Control": "max-age=86400"})
+
+
+async def api_asset_delete(req):
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    name = Path(body.get("name") or "").name
+    p = (INPUT_DIR / name).resolve()
+    if not name or INPUT_DIR not in p.parents or not p.exists():
+        return web.json_response({"error": "文件不存在"}, status=404)
+    try:
+        p.unlink()
+    except Exception as exc:
+        return web.json_response({"error": f"删除失败：{exc}"}, status=500)
+    return web.json_response({"ok": True, "name": name})
+
+
 async def api_stop(req):
     """停止当前生成：soft=只发 interrupt；hard=interrupt 无效时重启 ComfyUI。"""
     try:
@@ -841,10 +909,15 @@ async def api_upload(req):
                 if not chunk:
                     break
                 fh.write(chunk)
-        # 统一转成 png，避免 webp/avif 兼容问题
+        # 校验完整性（手机上传经常被锁屏/切后台打断，只传了一半）
+        size = dst.stat().st_size if dst.exists() else 0
+        if size < 1024:
+            dst.unlink(missing_ok=True)
+            return web.json_response({"error": f"上传内容为空或未传完（{size} 字节），请重传"}, status=400)
         try:
             im = Image.open(dst)
-            im = im.convert("RGBA")
+            im.verify()                      # 截断的 PNG 会在这里抛 OSError
+            im = Image.open(dst).convert("RGBA")
             bg = Image.new("RGB", im.size, (0, 0, 0))
             bg.paste(im, mask=im.split()[3])
             png = dst.with_suffix(".png")
@@ -852,8 +925,11 @@ async def api_upload(req):
             if png != dst:
                 dst.unlink(missing_ok=True)
             names.append(png.name)
-        except Exception:
-            names.append(name)
+        except Exception as exc:
+            dst.unlink(missing_ok=True)
+            return web.json_response(
+                {"error": f"图片不完整或格式不支持（{exc}）。如果是手机拍的 HEIC，请先在相册里导出成 JPG 再传"},
+                status=400)
     return web.json_response({"names": names})
 
 
@@ -1028,6 +1104,9 @@ def main():
     app.router.add_post("/api/generate", api_generate)
     app.router.add_post("/api/hide", api_hide)
     app.router.add_post("/api/stop", api_stop)
+    app.router.add_get("/api/assets", api_assets)
+    app.router.add_get("/api/asset_thumb", api_asset_thumb)
+    app.router.add_post("/api/asset_delete", api_asset_delete)
     app.router.add_get("/api/private/list", api_private_list)
     app.router.add_post("/api/private/move", api_private_move)
     app.router.add_post("/api/private/setpw", api_private_setpw)

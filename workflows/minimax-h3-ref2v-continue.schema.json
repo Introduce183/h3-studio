@@ -271,6 +271,31 @@
       "min": -9999,
       "max": 9999,
       "hint": "0 = 首帧锚定（续接）；负数为从末尾倒数（例如 -60 表示最后 60 帧处）。"
+    },
+    {
+      "name": "image8",
+      "label": "参考图 8",
+      "type": "image",
+      "group": "basic",
+      "bind": "46.inputs.image",
+      "default": "hero_ref_8.png"
+    },
+    {
+      "name": "image9",
+      "label": "参考图 9",
+      "type": "image",
+      "group": "basic",
+      "bind": "49.inputs.image",
+      "default": "hero_ref_9.png"
+    },
+    {
+      "name": "ref_video",
+      "label": "参考视频（2–15 秒）",
+      "type": "string",
+      "group": "basic",
+      "bind": "50.inputs.video",
+      "default": "",
+      "hint": "ComfyUI input 目录里的视频文件名；留空则不用视频参考。喂 <Video 1>。"
     }
   ],
   "internalInputs": [

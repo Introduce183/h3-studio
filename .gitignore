@@ -18,3 +18,16 @@ desktop.ini
 .DS_Store
 startup.json
 calib.json
+hidden.json
+private.json
+*.log
+*.log.out
+*.bak
+*.bak*
+webui/joined.json
+webui/hidden.json
+webui/private.json
+webui/calib.json
+webui/jobs.json
+webui/library.json
+webui/config.json

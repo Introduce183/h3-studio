@@ -66,6 +66,10 @@
   .lib .item img{width:100%;display:block;aspect-ratio:3/4;object-fit:cover;background:#0e0e11}
   .lib .item .cap{font-size:11px;color:var(--dim);padding:3px 6px;display:flex;justify-content:space-between}
   .lib .item .cap b{color:#cfd3da;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lib.priv .item img{filter:blur(14px) saturate(.7)}
+  .lib.priv .item::after{content:'🙈';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;opacity:.85;pointer-events:none}
+  video.blurred{filter:blur(18px);cursor:pointer}
+  #privToggle.on{color:var(--warn);border-color:var(--warn)}
   .libhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
   .libhead button{background:#1e1e24;border:1px solid var(--line);color:var(--dim);border-radius:6px;font-size:11px;padding:3px 8px;cursor:pointer}
 </style>
@@ -242,7 +246,10 @@
         </div>
         <div class="pill" id="anchorHint">不选则使用所选视频的最后一帧作为锚点</div>
       </div>
-      <button id="go" class="primary">开始生成</button>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button id="go" class="primary" style="margin-top:0;flex:1">开始生成</button>
+        <button id="stop" style="padding:11px 16px;border:1px solid var(--err);border-radius:10px;background:#2a1a1e;color:var(--err);font-size:14px;font-weight:600;cursor:pointer;display:none">⏹ 停止</button>
+      </div>
       <div id="progressWrap">
         <div class="bar"><i id="bar"></i></div>
         <div class="status"><span id="stageTxt">排队中…</span><span id="timeTxt"></span></div>
@@ -252,9 +259,26 @@
 
     <div class="card" style="margin-top:14px">
       <div class="libhead"><h2 style="margin:0">作品库 <span class="pill" id="libCount"></span></h2>
-        <div class="sp"><input id="jumpNo" type="number" min="1" placeholder="编号"><button id="jumpGo">播放</button><button id="libRefresh">刷新</button></div>
+        <div class="sp"><input id="jumpNo" type="number" min="1" placeholder="编号"><button id="jumpGo">播放</button><button id="privToggle" title="隐私模式：缩略图和视频默认模糊，点开才显示">🙈 隐私</button><button id="libRefresh">刷新</button></div>
       </div>
       <div class="lib" id="lib"><span class="pill">加载中…</span></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="libhead"><h2 style="margin:0">🔒 隐私作品库 <span class="pill" id="privCount"></span></h2>
+        <div class="sp"><button id="privLock" style="display:none">锁定</button></div>
+      </div>
+      <div id="privLocked">
+        <div class="row" style="margin:0">
+          <label>口令</label>
+          <input id="privPw" type="password" placeholder="输入口令" style="flex:1;min-width:0">
+          <button id="privUnlock">解锁</button>
+        </div>
+        <div class="pill" id="privHint" style="margin-top:6px">每台电脑独立设置口令；解锁只对当前标签页有效</div>
+      </div>
+      <div id="privBody" style="display:none">
+        <div class="lib" id="privLib"></div>
+      </div>
     </div>
 
     <div class="card" style="margin-top:14px">
@@ -270,6 +294,8 @@
     <div class="actions" id="actions" style="display:none">
       <a id="dl" download>下载 mp4</a>
       <button id="contThis">以此续接下一段</button>
+      <button id="toPriv" title="移到隐私作品库（需要先解锁）">🔒 移入隐私</button>
+      <button id="hideThis" title="从作品库里隐藏这条（文件不会删除）">隐藏此条</button>
     </div>
   </section>
 </main>
@@ -502,14 +528,51 @@ $('#go').onclick = async ()=>{
   if(!r.ok){ $('#err').textContent = j.error || '提交失败'; return; }
   current = j.job;
   $('#go').disabled = true;
+  $('#stop').style.display = 'inline-block';
   $('#progressWrap').style.display='block';
   $('#bar').style.width = '2%';
   $('#stageTxt').textContent = `已提交 · ${j.frames} 帧`;
   poll(current);
 };
 
-async function poll(id){
-  const t0 = Date.now();
+$('#stop').onclick = async ()=>{
+  const btn = $('#stop');
+  btn.disabled = true;
+  btn.textContent = '正在停止…';
+  try{
+    const jobId = current;
+    await fetch('/api/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({hard:false})});
+    $('#stageTxt').textContent = '已发送中断，等待当前步结束…';
+    let done = false;
+    for (let i = 0; i < 22; i++){
+      await new Promise(r=>setTimeout(r, 2000));
+      if (!jobId) { done = true; break; }
+      const jr = await fetch(`/api/job/${jobId}`);
+      if (!jr.ok) { done = true; break; }
+      const jj = await jr.json();
+      if (['interrupted','failed','done'].includes(jj.state)) { done = true; break; }
+      $('#stageTxt').textContent = `已发送中断，等待当前步结束… ${Math.round(jj.elapsed||0)}s`;
+    }
+    if (!done){
+      $('#stageTxt').textContent = '中断无效，正在强制重启 ComfyUI…';
+      await fetch('/api/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({hard:true})});
+      $('#err').textContent = '已强制重启 ComfyUI，任务被终止';
+    } else {
+      $('#err').textContent = '已停止';
+    }
+    $('#go').disabled = false;
+    $('#stop').style.display = 'none';
+    $('#bar').style.width = '0';
+    loadHist();
+  }catch(e){
+    $('#err').textContent = '停止请求失败：' + e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = '⏹ 停止';
+  }
+};
+
+async function poll(id, baseElapsed){
+  const t0 = Date.now() - Math.max(0, (baseElapsed || 0) * 1000);
   while(true){
     await new Promise(r=>setTimeout(r,1500));
     const r = await fetch(`/api/job/${id}`);
@@ -534,10 +597,20 @@ async function poll(id){
     const pct = p.total ? Math.max(2, Math.round(p.step/p.total*100)) : 5;
     $('#bar').style.width = pct + '%';
     $('#timeTxt').textContent = `${Math.round((Date.now()-t0)/1000)}s`;
-    $('#stageTxt').textContent = p.total ? `采样 ${p.step}/${p.total}` : '模型加载 / 编码中…';
+    const NODE_NAME = {'30':'画面解码','31':'音频解码','51':'编码参考图','52':'编码参考图'};
+    if (p.phase === 'sample') {
+      $('#stageTxt').textContent = `采样 ${p.step}/${p.total}`;
+    } else if (p.phase === 'other') {
+      $('#stageTxt').textContent = (NODE_NAME[p.node] || '处理中') + (p.total ? ` ${p.step}/${p.total}` : '…');
+    } else if (p.phase === 'finishing') {
+      $('#stageTxt').textContent = '收尾（写视频）…';
+    } else {
+      $('#stageTxt').textContent = '模型加载 / 编码中…';
+    }
     if(j.state === 'done'){
       $('#bar').style.width='100%';
       $('#go').disabled = false;
+      $('#stop').style.display = 'none';
       showResult(j);
       loadHist();
       loadLibrary().then(()=>{
@@ -546,21 +619,43 @@ async function poll(id){
       });
       break;
     }
+    if(j.state === 'interrupted'){
+      $('#stageTxt').textContent = '已中断（用时 ' + Math.round(j.actual ?? j.frozenElapsed ?? j.elapsed ?? 0) + 's）';
+      $('#bar').style.width = '0';
+      $('#go').disabled = false;
+      $('#stop').style.display = 'none';
+      $('#err').textContent = '任务已中断（' + (j.error || '手动停止') + '），没有产物。';
+      loadHist();
+      break;
+    }
     if(j.state === 'failed'){
       $('#err').textContent = '生成失败：' + (j.error||'');
       $('#go').disabled = false;
+      $('#stop').style.display = 'none';
       break;
     }
   }
 }
 
 function showResult(j){
-  const src = `/api/gallery/${j.artifact}`;
+  const joined = !!j.joined;
+  const src = joined ? `/api/gallery/${j.joined}` : `/api/gallery/${j.artifact}`;
   $('#stage').outerHTML = `<video id="stage" controls autoplay loop src="${src}"></video>`;
-  $('#meta').innerHTML = `<span>${j.artifact}</span><span>${j.duration ?? ''} 秒</span><span>${j.frames} 帧</span><span>模式：${j.mode==='continue'?'衔接':'单段'}</span><span>画质：${j.qualityLabel || j.quality || ''}${j.steps ? ' · ' + j.steps + ' 步' : ''}</span>`;
+  const modeTxt = j.mode==='continue' ? '衔接' : (j.mode==='swap' ? '视频改人物' : '单段');
+  if (joined){
+    $('#meta').innerHTML = `<span>✅ 已自动接上上一段</span><span>总长 ${j.joinedDuration} 秒</span><span>本段 ${j.duration ?? ''} 秒 / ${j.frames} 帧</span><span>模式：${modeTxt}</span><span>画质：${j.qualityLabel || j.quality || ''}${j.steps ? ' · ' + j.steps + ' 步' : ''}</span><a href="#" id="onlyNew" style="color:var(--acc)">只看本段</a>`;
+    const only = document.getElementById('onlyNew');
+    if (only) only.onclick = (e)=>{ e.preventDefault(); const v=document.getElementById('stage'); if(v) v.src=`/api/gallery/${j.artifact}`; };
+  } else {
+    $('#meta').innerHTML = `<span>${j.artifact}</span><span>${j.duration ?? ''} 秒</span><span>${j.frames} 帧</span><span>模式：${modeTxt}</span><span>画质：${j.qualityLabel || j.quality || ''}${j.steps ? ' · ' + j.steps + ' 步' : ''}</span>`;
+  }
   $('#actions').style.display='flex';
   $('#dl').href = src;
-  $('#dl').download = j.artifact;
+  $('#dl').download = joined ? j.joined : j.artifact;
+  currentRel = j.rel || '';
+  $('#toPriv').textContent = '🔒 移入隐私';
+  $('#toPriv').onclick = ()=>moveIn(currentRel);
+  applyPrivacy();
   $('#contThis').onclick = ()=>{
     contAnchor = {type:'video', value: j.rel || ''};
     setMode('continue');
@@ -599,8 +694,12 @@ async function loadHist(){
   const box = $('#hist');
   if(!j.items.length){ box.innerHTML = '<span class="pill">还没有记录</span>'; return; }
   box.innerHTML = j.items.map(it=>{
-    const st = it.state==='done' ? '✅' : it.state==='failed' ? '❌' : '⏳';
-    return `<div><span>${st} ${it.duration}s · ${it.frames}帧</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(it.prompt||'').slice(0,40)}…</span><span>${it.elapsed? Math.round(it.elapsed)+'s':''}</span></div>`;
+    const st = it.state==='done' ? '✅' : it.state==='failed' ? '❌' : it.state==='interrupted' ? '⏸' : '⏳';
+    const used = (it.actual != null) ? Math.round(it.actual) + 's'
+               : (it.frozenElapsed != null) ? Math.round(it.frozenElapsed) + 's'
+               : (it.elapsed != null) ? Math.round(it.elapsed) + 's' : '';
+    const label = it.state==='interrupted' ? '已中断' : '';
+    return `<div><span>${st} ${it.duration ?? ''}s · ${it.frames}帧${label ? ' · ' + label : ''}</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(it.prompt||'').slice(0,40)}…</span><span>${used}</span></div>`;
   }).join('');
 }
 
@@ -617,8 +716,8 @@ async function loadLibrary(){
     LIB.forEach(it=>{
       const d = document.createElement('div');
       d.className = 'item';
-      d.title = `#${it.no} · ${it.name}\n${it.dur}s · ${it.w}x${it.h} · ${it.mb}MB`;
-      d.innerHTML = `<span class="no">#${it.no}</span>
+      d.title = `#${it.no} · ${it.name}\n${it.dur}s · ${it.w}x${it.h} · ${it.mb}MB` + (it.joined ? `\n合并：${it.src}（${it.parts}）` : '');
+      d.innerHTML = `<span class="no">#${it.no}${it.joined ? ' 🔗' : ''}</span>
         <img loading="lazy" src="/api/thumb?rel=${encodeURIComponent(it.rel)}">
         <div class="cap"><b>${it.dur}s</b><span>${it.mb}MB</span></div>`;
       d.onclick = ()=>playArchive(it);
@@ -629,9 +728,16 @@ async function loadLibrary(){
 
 function playArchive(it){
   $('#stage').outerHTML = `<video id="stage" controls autoplay loop src="/api/video?no=${it.no}"></video>`;
-  $('#meta').innerHTML = `<span>#${it.no}</span><span>${it.name}</span><span>${it.dur} 秒</span><span>${it.w}×${it.h}</span><span>${it.mb} MB</span>`;
+  const extra = it.seg ? `<a href="#" id="seeSeg" style="color:var(--acc)">看本段</a>` : '';
+  $('#meta').innerHTML = `<span>#${it.no}${it.joined ? ' 🔗 合并版' : ''}</span><span>${it.name}</span>${it.joined ? `<span>${it.src} + 本段（${it.parts}）</span>` : ''}<span>${it.dur} 秒</span><span>${it.w}×${it.h}</span><span>${it.mb} MB</span>${extra}`;
+  const seg = document.getElementById('seeSeg');
+  if (seg) seg.onclick = (e)=>{ e.preventDefault(); const v=document.getElementById('stage'); if(v) v.src=`/api/video?rel=${encodeURIComponent(it.seg)}`; };
   $('#actions').style.display='flex';
   $('#dl').href = `/api/video?no=${it.no}`; $('#dl').download = it.name;
+  currentRel = it.rel;
+  $('#toPriv').textContent = '🔒 移入隐私';
+  $('#toPriv').onclick = ()=>moveIn(currentRel);
+  applyPrivacy();
   $('#contThis').onclick = ()=>{
     contAnchor = {type:'video', value: it.rel};
     setMode('continue');
@@ -644,6 +750,128 @@ function playArchive(it){
   };
 }
 $('#libRefresh').onclick = loadLibrary;
+
+// ---------- 隐私模式 ----------
+let privacy = localStorage.getItem('h3_priv') !== '0';   // 默认开启
+let currentRel = '';
+
+function applyPrivacy(){
+  $('#lib').classList.toggle('priv', privacy);
+  const btn = $('#privToggle');
+  btn.classList.toggle('on', privacy);
+  btn.textContent = privacy ? '🙈 隐私' : '👁 显示';
+  const v = document.getElementById('stage');
+  if (v && v.tagName === 'VIDEO') { v.classList.toggle('blurred', privacy); v.onclick = privacy ? () => v.classList.remove('blurred') : null; }
+}
+$('#privToggle').onclick = ()=>{
+  privacy = !privacy;
+  localStorage.setItem('h3_priv', privacy ? '1' : '0');
+  applyPrivacy();
+  if (!privacy) { const v = document.getElementById('stage'); if (v && v.tagName === 'VIDEO') v.classList.remove('blurred'); }
+};
+
+$('#hideThis').onclick = async ()=>{
+  if (!currentRel) return;
+  try{
+    await fetch('/api/hide', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({rel: currentRel, hide: true})});
+    await loadLibrary();
+    await loadOutputs();
+    $('#stageTxt').textContent = '已从作品库隐藏（文件还在，可在 hidden.json 里恢复）';
+  }catch(e){ $('#err').textContent = '隐藏失败：' + e.message; }
+};
+
+// ---------- 隐私作品库 ----------
+let privPw = sessionStorage.getItem('h3_pw') || '';
+
+async function loadPrivate(){
+  if (!privPw){
+    $('#privLocked').style.display = 'block';
+    $('#privBody').style.display = 'none';
+    $('#privLock').style.display = 'none';
+    $('#privCount').textContent = '';
+    return;
+  }
+  try{
+    const r = await fetch(`/api/private/list?password=${encodeURIComponent(privPw)}`);
+    if (!r.ok){ privPw = ''; sessionStorage.removeItem('h3_pw'); return loadPrivate(); }
+    const j = await r.json();
+    $('#privLocked').style.display = 'none';
+    $('#privBody').style.display = 'block';
+    $('#privLock').style.display = '';
+    $('#privCount').textContent = j.count ? `${j.count} 条` : '';
+    const box = $('#privLib');
+    box.innerHTML = '';
+    if (!j.items.length){
+      box.innerHTML = '<span class="pill">隐私库是空的 —— 在作品库里点开一条，选「🔒 移入隐私」</span>';
+      return;
+    }
+    j.items.forEach(it=>{
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.title = it.name;
+      d.innerHTML = `<span class="no">${it.no ? '#' + it.no : '🔒'}</span>
+        <img loading="lazy" src="/api/thumb?rel=${encodeURIComponent(it.rel)}&password=${encodeURIComponent(privPw)}">
+        <div class="cap"><b>${it.dur}s</b><span>${it.mb}MB</span></div>`;
+      d.onclick = ()=>playPrivate(it);
+      box.appendChild(d);
+    });
+    applyPrivacy();
+  }catch(e){ $('#privHint').textContent = '读取失败：' + e.message; }
+}
+
+function playPrivate(it){
+  const src = `/api/video?no=${it.no || ''}&rel=${encodeURIComponent(it.rel)}&password=${encodeURIComponent(privPw)}`;
+  $('#stage').outerHTML = `<video id="stage" controls autoplay loop src="${src}"></video>`;
+  $('#meta').innerHTML = `<span>🔒 ${it.name}</span><span>${it.dur} 秒</span><span>${it.w}×${it.h}</span><span>${it.mb} MB</span>`;
+  $('#actions').style.display = 'flex';
+  $('#dl').href = src; $('#dl').download = it.name;
+  currentRel = it.rel;
+  $('#contThis').onclick = ()=>{ $('#stageTxt').textContent = '隐私库的片子暂不支持直接续接'; };
+  $('#toPriv').textContent = '↩ 移回作品库';
+  $('#toPriv').onclick = ()=>moveOut(it.rel);
+  applyPrivacy();
+}
+
+$('#privUnlock').onclick = async ()=>{
+  const pw = $('#privPw').value.trim();
+  if (!pw){ $('#privHint').textContent = '请输入口令'; return; }
+  try{
+    const r = await fetch(`/api/private/list?password=${encodeURIComponent(pw)}`);
+    if (!r.ok){ $('#privHint').textContent = '口令不对'; return; }
+    privPw = pw;
+    sessionStorage.setItem('h3_pw', pw);
+    $('#privPw').value = '';
+    await loadPrivate();
+  }catch(e){ $('#privHint').textContent = '解锁失败：' + e.message; }
+};
+$('#privLock').onclick = ()=>{ privPw = ''; sessionStorage.removeItem('h3_pw'); loadPrivate(); };
+
+async function moveIn(rel){
+  if (!rel) return;
+  if (!privPw){ $('#err').textContent = '请先在「隐私作品库」输入口令解锁'; return; }
+  try{
+    const r = await fetch('/api/private/move', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({rel: rel, password: privPw, direction: 'in'})});
+    if (!r.ok){ const j = await r.json(); $('#err').textContent = j.error || '移入失败'; return; }
+    await loadLibrary(); await loadOutputs(); await loadPrivate();
+    $('#stageTxt').textContent = '已移入隐私作品库';
+    $('#actions').style.display = 'none';
+    $('#stage').outerHTML = '<div id="stage" class="stage">已移入隐私作品库 🔒</div>';
+  }catch(e){ $('#err').textContent = '移入失败：' + e.message; }
+}
+async function moveOut(rel){
+  if (!rel) return;
+  try{
+    await fetch('/api/private/move', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({rel: rel, password: privPw, direction: 'out'})});
+    await loadPrivate(); await loadLibrary(); await loadOutputs();
+    $('#stageTxt').textContent = '已移回作品库';
+  }catch(e){ $('#err').textContent = '移出失败：' + e.message; }
+}
+$('#toPriv').onclick = ()=>moveIn(currentRel);
+
+loadPrivate();
 $('#jumpGo').onclick = ()=>{
   const n = parseInt($('#jumpNo').value, 10);
   const it = LIB.find(x => x.no === n);
@@ -660,6 +888,24 @@ async function health(){
 }
 health(); setInterval(health, 5000);
 loadOutputs(); loadHist(); loadLibrary();
+applyPrivacy();          // 恢复上次的隐私状态（localStorage）
+
+// 刷新页面后自动接上仍在跑的任务（进度存在后端，不该因刷新丢失）
+async function resumeRunning(){
+  try{
+    const r = await fetch('/api/jobs'); const j = await r.json();
+    const run = (j.items || []).find(x => x.state === 'running' || x.state === 'queued');
+    if (!run) return;
+    current = run.id;
+    $('#go').disabled = true;
+    $('#stop').style.display = 'inline-block';
+    $('#progressWrap').style.display = 'block';
+    $('#bar').style.width = '5%';
+    $('#stageTxt').textContent = `已接上正在跑的任务（${run.qualityLabel || run.quality || ''}${run.steps ? ' · ' + run.steps + ' 步' : ''} · ${run.frames} 帧）`;
+    poll(run.id, run.elapsed);
+  }catch(e){ }
+}
+resumeRunning();
 </script>
 </body>
 </html>

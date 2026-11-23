@@ -2,7 +2,7 @@
 
 启动：<ComfyUI venv python> app.py   然后浏览器打开 http://127.0.0.1:8190
 """
-import asyncio, json, os, re, shutil, time, uuid
+import asyncio, hashlib, json, os, re, shutil, time, uuid
 from pathlib import Path
 
 import av
@@ -17,15 +17,23 @@ GALLERY = HERE / "outputs"
 UPLOADS = HERE / "uploads"
 
 
+def _read_json(path: Path, default=None):
+    """读 JSON：兼容 Windows 记事本/PowerShell 写出的 UTF-8 BOM。"""
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return default
+    except Exception as exc:
+        print(f"[warn] 读取 {path.name} 失败：{exc}")
+        return default
+
+
 def load_config() -> dict:
-    cfg = {"comfyUrl": COMFY_DEFAULT, "port": PORT_DEFAULT,
+    cfg = {"comfyUrl": COMFY_DEFAULT, "port": PORT_DEFAULT, "host": "127.0.0.1", "token": "",
            "inputDir": "", "outputDir": "", "workflowsDir": ""}
     p = HERE / "config.json"
     if p.exists():
-        try:
-            cfg.update(json.loads(p.read_text(encoding="utf-8")))
-        except Exception as exc:
-            print(f"[warn] config.json 读取失败：{exc}")
+        cfg.update(_read_json(p, {}) or {})
     return cfg
 
 
@@ -52,6 +60,8 @@ def probe_comfy_dirs(comfy: str) -> tuple[str | None, str | None, str | None]:
 CFG = load_config()
 COMFY = str(CFG["comfyUrl"]).rstrip("/")
 PORT = int(CFG["port"])
+HOST = str(CFG.get("host") or "127.0.0.1")
+TOKEN = str(CFG.get("token") or "")
 
 _inp, _out, _inst = probe_comfy_dirs(COMFY)
 
@@ -105,7 +115,8 @@ T_SINGLE = "minimax-h3-ref2v-community-multi"
 T_CONTINUE = "minimax-h3-ref2v-continue"
 REF_NODES = ["12", "40", "41", "42", "43", "44", "45", "46", "49"]   # ref_image_0..8（模型上限 9 张）
 ANCHOR_NODE = "47"
-VIDEO_NODE = "50"       # VHS_LoadVideoPath：参考视频帧 + 原声
+VIDEO_NODE = "50"
+SAMPLER_NODE = "23"      # SamplerCustomAdvanced：只有它的进度代表采样步数       # VHS_LoadVideoPath：参考视频帧 + 原声
 MAX_REFS = len(REF_NODES)
 
 CLIENT_ID = uuid.uuid4().hex
@@ -127,7 +138,7 @@ def load_jobs() -> None:
     if not JOB_FILE.exists():
         return
     try:
-        data = json.loads(JOB_FILE.read_text(encoding="utf-8"))
+        data = _read_json(JOB_FILE, {}) or {}
         for k, v in data.items():
             if isinstance(v, dict) and "pid" in v:
                 JOBS[k] = v
@@ -146,7 +157,7 @@ def frames_for(seconds: float) -> int:
 
 
 def load_template(tid: str) -> dict:
-    return json.loads((WORKFLOWS / f"{tid}.json").read_text(encoding="utf-8"))
+    return _read_json(WORKFLOWS / f"{tid}.json")
 
 
 def build_graph(prompt: str, duration: float, images: list[str], mode: str, anchor: str | None,
@@ -195,7 +206,7 @@ CALIB_FILE = HERE / "calib.json"
 def load_calib() -> list[dict]:
     try:
         if CALIB_FILE.exists():
-            d = json.loads(CALIB_FILE.read_text(encoding="utf-8"))
+            d = _read_json(CALIB_FILE, {}) or {}
             return d.get("samples", [])
     except Exception:
         pass
@@ -280,11 +291,66 @@ async def ws_progress_loop():
                         data = d.get("data") or {}
                         pid = data.get("prompt_id")
                         if t == "progress" and pid:
-                            PROGRESS[pid] = {"step": data.get("value", 0), "total": data.get("max", 0)}
+                            node = str(data.get("node") or "")
+                            PROGRESS.setdefault(pid, {})[node] = {
+                                "value": int(data.get("value") or 0),
+                                "max": int(data.get("max") or 0)}
                         elif t == "executing" and pid and data.get("node") is None:
-                            PROGRESS.setdefault(pid, {})["done"] = True
+                            PROGRESS.setdefault(pid, {})["_done"] = True
         except Exception:
             await asyncio.sleep(2)
+
+
+def next_chain_name(total: float) -> str:
+    """拼接产物的可读名字：H3_Chain_03_11.1s-audio.mp4（序号全局递增，带总时长）。"""
+    jm = load_joined()
+    used = 0
+    for name in jm:
+        m = re.match(r"H3_Chain_(\d+)_", name)
+        if m:
+            used = max(used, int(m.group(1)))
+    return f"H3_Chain_{used + 1:02d}_{total:.1f}s-audio.mp4"
+
+
+JOINED_FILE = HERE / "joined.json"
+
+
+def load_joined() -> dict:
+    return _read_json(JOINED_FILE, {}) or {}
+
+
+def save_joined(d: dict) -> None:
+    try:
+        tmp = JOINED_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(JOINED_FILE)
+    except Exception as exc:
+        print(f"[warn] 合并映射写入失败：{exc}")
+
+
+def join_videos(a: Path, b: Path, dst: Path) -> float | None:
+    """把两段拼成一条。先试流拷贝（参数一致时无损），失败再重编码。返回总时长秒数。"""
+    import subprocess
+    import imageio_ffmpeg
+    lst = GALLERY / f"_concat_{uuid.uuid4().hex[:8]}.txt"
+    try:
+        lst.write_text("".join(f"file '{str(p).replace(chr(92), '/')}'\n" for p in (a, b)), encoding="utf-8")
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        r = subprocess.run([ff, "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
+                            "-c", "copy", str(dst)], capture_output=True)
+        if r.returncode != 0 or not dst.exists():
+            r = subprocess.run([ff, "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
+                                "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p",
+                                "-c:a", "aac", "-b:a", "192k", str(dst)], capture_output=True)
+        if r.returncode != 0 or not dst.exists():
+            print(f"[warn] 拼接失败：{r.stderr[-300:]!r}")
+            return None
+        return round(float(av.open(str(dst)).duration) / 1e6, 2)
+    except Exception as exc:
+        print(f"[warn] 拼接异常：{exc}")
+        return None
+    finally:
+        lst.unlink(missing_ok=True)
 
 
 async def job_worker(app, job_id: str, pid: str):
@@ -296,29 +362,55 @@ async def job_worker(app, job_id: str, pid: str):
         while time.time() < deadline:
             await asyncio.sleep(2)
             tick += 1
-            h = await comfy_json(s, f"/history/{pid}")
+            try:
+                h = await comfy_json(s, f"/history/{pid}")
+            except Exception:
+                await asyncio.sleep(2)
+                continue
             entry = h.get(pid)
             job["elapsed"] = round(time.time() - job["started"], 1)
-            job["progress"] = PROGRESS.get(pid, {})
+            raw = PROGRESS.get(pid, {}) or {}
+            samp = raw.get(SAMPLER_NODE)
+            if samp and samp.get("max"):
+                job["progress"] = {"phase": "sample", "step": samp["value"], "total": samp["max"]}
+            else:
+                other = next(((n, d) for n, d in raw.items()
+                              if n not in ("_done", SAMPLER_NODE) and isinstance(d, dict) and d.get("max")), None)
+                if other:
+                    job["progress"] = {"phase": "other", "node": other[0],
+                                       "step": other[1]["value"], "total": other[1]["max"]}
+                elif raw.get("_done"):
+                    job["progress"] = {"phase": "finishing"}
             if tick % 3 == 0:
                 save_jobs()
             if entry:
-                st = (entry.get("status") or {}).get("status_str")
-                # 记录真实执行耗时（不含排队），用于本机自适应校准
-                if st != "error":
-                    try:
-                        msgs = (entry.get("status") or {}).get("messages") or []
-                        t0 = next((m[1]["timestamp"] for m in msgs if m[0] == "execution_start"), None)
-                        t1 = next((m[1]["timestamp"] for m in msgs if m[0] == "execution_success"), None)
-                        if t0 and t1:
-                            job["actual"] = round((t1 - t0) / 1000, 1)
+                status = entry.get("status") or {}
+                st = status.get("status_str")
+                msgs = status.get("messages") or []
+                kinds = [m[0] for m in msgs]
+                interrupted = "execution_interrupted" in kinds
+
+                # 真实执行耗时 = execution_start → 成功/中断，不含排队与空闲
+                try:
+                    t0 = next((m[1]["timestamp"] for m in msgs if m[0] == "execution_start"), None)
+                    t1 = next((m[1]["timestamp"] for m in msgs
+                               if m[0] in ("execution_success", "execution_interrupted", "execution_error")), None)
+                    if t0 and t1:
+                        job["actual"] = round((t1 - t0) / 1000, 1)
+                        if not interrupted and st != "error":
                             add_calib(job.get("steps") or 0, job.get("frames") or 0,
                                       len(job.get("images") or []), job["actual"])
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
+
+                if interrupted:
+                    job["state"] = "interrupted"
+                    job["frozenElapsed"] = job.get("elapsed")
+                    save_jobs()
+                    return
                 if st == "error":
                     job["state"] = "failed"
-                    job["error"] = json.dumps((entry.get("status") or {}).get("messages"))[:600]
+                    job["error"] = json.dumps(msgs)[:600]
                     save_jobs()
                     return
                 art = pick_artifact(entry)
@@ -329,18 +421,55 @@ async def job_worker(app, job_id: str, pid: str):
                     job["artifact"] = dst.name
                     job["rel"] = str(art.relative_to(OUTPUT_DIR)).replace("\\", "/")
                     job["duration"] = round(float(av.open(str(dst)).duration) / 1e6, 2)
+                    # 衔接模式：自动把上一段拼进来
+                    if job.get("src_rel"):
+                        srcp = OUTPUT_DIR / job["src_rel"]
+                        if srcp.exists():
+                            # 先拼到临时名，拿到总时长后再改成可读名
+                            tmp_out = OUTPUT_DIR / f"_join_{job_id}.mp4"
+                            total = join_videos(srcp, dst, tmp_out)
+                            jout = None
+                            seg_name = ""
+                            if total:
+                                seg_name = next_chain_name(total)
+                                jout = OUTPUT_DIR / seg_name
+                                shutil.move(str(tmp_out), str(jout))
+                            if total and jout:
+                                gcopy = GALLERY / f"{job_id}_joined.mp4"
+                                shutil.copyfile(jout, gcopy)
+                                job["joined"] = gcopy.name
+                                job["joinedRel"] = seg_name
+                                job["joinedDuration"] = total
+                                # 记录映射：合并版 -> 本段 / 前一段
+                                jm = load_joined()
+                                src_meta = _video_meta(srcp) or {}
+                                jm[seg_name] = {
+                                    "src": job["src_rel"], "srcDur": src_meta.get("dur"),
+                                    "seg": job["artifact"].split("_", 1)[-1], "segDur": job.get("duration"),
+                                    "total": total, "at": int(time.time())}
+                                save_joined(jm)
+                                # 本段不再单独出现在作品库
+                                h = load_hidden()
+                                h.add(job["rel"])
+                                save_hidden(h)
                     save_jobs()
                     return
-                job["state"] = "done"
+                job["state"] = "failed"
+                job["error"] = "执行结束但没有找到产物文件"
                 save_jobs()
                 return
             # 队列里已经没有它、history 也没有 → 说明 ComfyUI 重启过，任务已丢
-            q = await comfy_json(s, "/queue")
+            try:
+                q = await comfy_json(s, "/queue")
+            except Exception:
+                await asyncio.sleep(2)
+                continue
             busy = {str(x[1]) for x in (q.get("queue_running") or []) if len(x) > 1}
             pend = {str(x[1]) for x in (q.get("queue_pending") or []) if len(x) > 1}
             if pid not in busy and pid not in pend:
-                job["state"] = "failed"
-                job["error"] = "任务不在队列里（ComfyUI 可能重启过）"
+                job["state"] = "interrupted"
+                job["error"] = "任务已不在队列（被中断或 ComfyUI 重启）"
+                job["frozenElapsed"] = job.get("elapsed")
                 save_jobs()
                 return
         job["state"] = "failed"
@@ -349,6 +478,25 @@ async def job_worker(app, job_id: str, pid: str):
 
 
 # ---------- 路由 ----------
+@web.middleware
+async def auth_middleware(request, handler):
+    """设了 token 就要求带口令；未设则局域网内谁都能访问。"""
+    if not TOKEN:
+        return await handler(request)
+    if request.path in ("/api/health",):
+        return await handler(request)
+    got = request.query.get("token") or request.headers.get("X-H3-Token") or request.cookies.get("h3tok")
+    if got == TOKEN:
+        resp = await handler(request)
+        if request.query.get("token"):          # 首次用 ?token= 进来，写 cookie 免得每个请求都带
+            resp.set_cookie("h3tok", TOKEN, max_age=86400 * 30, httponly=True, samesite="Lax")
+        return resp
+    return web.Response(
+        text="需要访问口令：在地址后面加 ?token=你的口令\n例如 http://192.168.1.10:8190/?token=abc123",
+        status=401, content_type="text/plain")
+
+
+
 async def index(_req):
     return web.FileResponse(HERE / "static" / "index.html")
 
@@ -379,7 +527,7 @@ LIB_FILE = HERE / "library.json"
 def load_lib() -> dict:
     if LIB_FILE.exists():
         try:
-            d = json.loads(LIB_FILE.read_text(encoding="utf-8"))
+            d = _read_json(LIB_FILE, {}) or {}
             d.setdefault("next", 1)
             d.setdefault("map", {})
             return d
@@ -397,12 +545,188 @@ def save_lib(lib: dict) -> None:
         print(f"[warn] 编号表落盘失败：{exc}")
 
 
+PRIVATE_FILE = HERE / "private.json"
+
+
+def _sha(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def load_private() -> dict:
+    d = _read_json(PRIVATE_FILE, {}) or {}
+    d.setdefault("pw", "")
+    d.setdefault("rel", [])
+    return d
+
+
+def save_private(d: dict) -> None:
+    try:
+        tmp = PRIVATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(PRIVATE_FILE)
+    except Exception as exc:
+        print(f"[warn] 隐私库写入失败：{exc}")
+
+
+def private_ok(password: str | None) -> bool:
+    d = load_private()
+    if not d["pw"]:
+        return False
+    return bool(password) and _sha(password) == d["pw"]
+
+
+HIDDEN_FILE = HERE / "hidden.json"
+
+
+
+def load_hidden() -> set[str]:
+    d = _read_json(HIDDEN_FILE, {}) or {}
+    return set(d.get("rel") or [])
+
+
+def save_hidden(rels: set[str]) -> None:
+    try:
+        tmp = HIDDEN_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"rel": sorted(rels)}, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(HIDDEN_FILE)
+    except Exception as exc:
+        print(f"[warn] 隐藏列表写入失败：{exc}")
+
+
 def rel_by_no(no: int) -> str | None:
     lib = load_lib()
     for rel, n in lib["map"].items():
         if n == no:
             return rel
     return None
+
+
+async def api_private_list(req):
+    if not private_ok(req.query.get("password")):
+        return web.json_response({"error": "口令不对"}, status=403)
+    rels = set(load_private().get("rel") or [])
+    lib = load_lib()
+    items = []
+    for p in OUTPUT_DIR.rglob("*.mp4"):
+        meta = _video_meta(p)
+        if not meta or meta["rel"] not in rels:
+            continue
+        meta["no"] = lib["map"].get(meta["rel"], 0)
+        items.append(meta)
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    return web.json_response({"items": items, "count": len(items)})
+
+
+async def api_private_move(req):
+    body = await req.json()
+    pw = body.get("password")
+    rel = (body.get("rel") or "").strip()
+    if not private_ok(pw):
+        return web.json_response({"error": "口令不对"}, status=403)
+    if not rel:
+        return web.json_response({"error": "缺少 rel"}, status=400)
+    d = load_private()
+    rels = set(d.get("rel") or [])
+    if body.get("direction") == "out":
+        rels.discard(rel)
+    else:
+        rels.add(rel)
+    d["rel"] = sorted(rels)
+    save_private(d)
+    return web.json_response({"ok": True, "count": len(rels), "in": rel in rels})
+
+
+async def api_private_setpw(req):
+    body = await req.json()
+    old = body.get("old") or ""
+    new = (body.get("new") or "").strip()
+    if len(new) < 4:
+        return web.json_response({"error": "新口令至少 4 位"}, status=400)
+    d = load_private()
+    if d["pw"] and not private_ok(old):
+        return web.json_response({"error": "原口令不对"}, status=403)
+    d["pw"] = _sha(new)
+    save_private(d)
+    return web.json_response({"ok": True})
+
+
+def _restart_comfy() -> bool:
+    """杀掉 ComfyUI 主进程并用 startup.json 里记的参数重新拉起。"""
+    import subprocess
+    import sys
+    cfg_path = HERE.parent / "startup.json"
+    cfg = _read_json(cfg_path, {}) or {}
+    main_py = cfg.get("mainPy")
+    py = cfg.get("python") or sys.executable
+    if not main_py or not Path(main_py).exists():
+        return False
+    # 杀掉现有的 main.py
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                              "Where-Object { $_.CommandLine -match 'main\\.py' } | "
+                              "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+                             capture_output=True, text=True)
+    except Exception as exc:
+        print(f"[warn] 杀 ComfyUI 失败：{exc}")
+        return False
+    time.sleep(4)
+    args = [py, "-s", main_py]
+    if cfg.get("yaml") and Path(cfg["yaml"]).exists():
+        args += ["--extra-model-paths-config", cfg["yaml"]]
+    if cfg.get("inputDir"):
+        args += ["--input-directory", cfg["inputDir"]]
+    if cfg.get("outputDir"):
+        args += ["--output-directory", cfg["outputDir"]]
+    subprocess.Popen(args, cwd=str(Path(main_py).parent),
+                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return True
+
+
+async def api_stop(req):
+    """停止当前生成：soft=只发 interrupt；hard=interrupt 无效时重启 ComfyUI。"""
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    hard = bool(body.get("hard"))
+    async with ClientSession() as sess:
+        try:
+            async with sess.post(f"{COMFY}/interrupt", json={}, timeout=10) as r:
+                await r.read()
+        except Exception as exc:
+            return web.json_response({"error": f"连不上 ComfyUI：{exc}"}, status=502)
+        try:
+            async with sess.post(f"{COMFY}/queue", json={"clear": True}, timeout=10) as r:
+                await r.read()
+        except Exception:
+            pass
+        # 不在这里等：采样一步可能要几十秒，交给前端轮询任务状态判断
+        stopped = False
+    restarted = False
+    if hard:
+        restarted = _restart_comfy()
+    for job in JOBS.values():
+        if job.get("state") in ("queued", "running"):
+            job["state"] = "interrupted"
+            job["error"] = "用户手动停止"
+            job["frozenElapsed"] = job.get("elapsed")
+    save_jobs()
+    return web.json_response({"ok": True, "requested": True, "stopped": stopped, "restarted": restarted, "hard": hard})
+
+
+async def api_hide(req):
+    body = await req.json()
+    rel = (body.get("rel") or "").strip()
+    if not rel:
+        return web.json_response({"error": "缺少 rel"}, status=400)
+    hidden = load_hidden()
+    if body.get("hide", True):
+        hidden.add(rel)
+    else:
+        hidden.discard(rel)
+    save_hidden(hidden)
+    return web.json_response({"ok": True, "count": len(hidden), "hidden": rel in hidden})
 
 
 async def api_outputs(_req):
@@ -421,7 +745,9 @@ async def api_outputs(_req):
         if old is None or (has_audio and not old[1]):
             picked[key] = (meta, has_audio)
 
-    items = [m for m, _ in picked.values()]
+    hidden = load_hidden()
+    priv = set(load_private().get("rel") or [])
+    items = [m for m, _ in picked.values() if m["rel"] not in hidden and m["rel"] not in priv]
 
     lib = load_lib()
     changed = False
@@ -434,6 +760,14 @@ async def api_outputs(_req):
     if changed:
         save_lib(lib)
 
+    jm = load_joined()
+    for m in items:
+        info = jm.get(m["name"])
+        if info:
+            m["joined"] = True
+            m["seg"] = info.get("seg")
+            m["src"] = info.get("src")
+            m["parts"] = f"{info.get('srcDur')}s + {info.get('segDur')}s"
     items.sort(key=lambda x: x["no"], reverse=True)
     return web.json_response({"items": items[:80], "total": len(items), "next": lib["next"]})
 
@@ -445,6 +779,8 @@ async def api_video(req):
     p = (OUTPUT_DIR / rel).resolve()
     if not rel or OUTPUT_DIR not in p.parents or not p.exists():
         raise web.HTTPNotFound()
+    if rel in set(load_private().get("rel") or []) and not private_ok(req.query.get("password")):
+        raise web.HTTPForbidden(text="这是隐私库里的视频，需要口令")
     return web.FileResponse(p)
 
 
@@ -459,6 +795,8 @@ async def api_thumb(req):
     p = (OUTPUT_DIR / rel).resolve()
     if not rel or OUTPUT_DIR not in p.parents or not p.exists():
         raise web.HTTPNotFound()
+    if rel in set(load_private().get("rel") or []) and not private_ok(req.query.get("password")):
+        raise web.HTTPForbidden(text="隐私库")
     THUMBS.mkdir(parents=True, exist_ok=True)
     key = f"{abs(hash((rel, int(p.stat().st_mtime)))):x}.jpg"
     dst = THUMBS / key
@@ -589,10 +927,12 @@ async def api_generate(req):
     if mode == "swap" and not video:
         return web.json_response({"error": "「视频改人物」必须提供一段参考视频"}, status=400)
     if mode == "continue":
+        src_rel = ""
         if anchor and anchor.endswith((".mp4", ".webm", ".mkv")):
             src = (OUTPUT_DIR / anchor).resolve()
             if OUTPUT_DIR not in src.parents or not src.exists():
                 return web.json_response({"error": "找不到要衔接的视频"}, status=400)
+            src_rel = str(src.relative_to(OUTPUT_DIR)).replace("\\", "/")
             img = INPUT_DIR / f"anchor_{uuid.uuid4().hex[:8]}.png"
             last_frame_png(src, img)
             anchor = img.name
@@ -622,6 +962,7 @@ async def api_generate(req):
                  "frames": frames_for(duration), "duration": duration, "mode": mode,
                  "quality": quality, "qualityLabel": QUALITY[quality]["label"],
                  "steps": QUALITY[quality]["steps"], "estimated": est, "video": video or "",
+                 "src_rel": (src_rel if mode == "continue" else ""),
                  "prompt": prompt, "images": images}
     asyncio.create_task(job_worker(req.app, jid, data["prompt_id"]))
     save_jobs()
@@ -672,7 +1013,7 @@ async def on_startup(app):
 
 
 def main():
-    app = web.Application()
+    app = web.Application(middlewares=[auth_middleware])
     app.router.add_get("/", index)
     app.router.add_static("/static", HERE / "static")
     app.router.add_get("/api/health", api_health)
@@ -685,6 +1026,11 @@ def main():
     app.router.add_post("/api/upload", api_upload)
     app.router.add_post("/api/upload_video", api_upload_video)
     app.router.add_post("/api/generate", api_generate)
+    app.router.add_post("/api/hide", api_hide)
+    app.router.add_post("/api/stop", api_stop)
+    app.router.add_get("/api/private/list", api_private_list)
+    app.router.add_post("/api/private/move", api_private_move)
+    app.router.add_post("/api/private/setpw", api_private_setpw)
     app.router.add_get("/api/job/{id}", api_job)
     app.router.add_get("/api/jobs", api_jobs)
     app.router.add_get("/api/gallery/{name}", api_gallery_video)

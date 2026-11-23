@@ -1,4 +1,5 @@
-﻿# H3 Studio 同步脚本
+﻿# 提示：耗时与可跑时长取决于本机显存，先看 docs/本机适配指南.md
+# H3 Studio 同步脚本
 # 用法（在仓库目录里跑）：
 #   powershell -ExecutionPolicy Bypass -File .\sync.ps1            # 检查 + 更新 + 重启
 #   powershell -ExecutionPolicy Bypass -File .\sync.ps1 -Check      # 只看有没有更新

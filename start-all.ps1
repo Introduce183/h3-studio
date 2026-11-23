@@ -1,4 +1,5 @@
-﻿# H3 Studio 一键启动：ComfyUI + WebUI
+﻿# 提示：耗时与可跑时长取决于本机显存，先看 docs/本机适配指南.md
+# H3 Studio 一键启动：ComfyUI + WebUI
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File .\start-all.ps1            # 启动（已起则跳过）
 #   powershell -ExecutionPolicy Bypass -File .\start-all.ps1 -Init      # 重新探测并保存配置
@@ -9,6 +10,7 @@ param(
     [switch]$Init,
     [switch]$Restart,
     [switch]$NoBrowser,
+    [switch]$NoTunnel,
     [int]$ComfyPort = 8188,
     [int]$WebPort = 8190
 )
@@ -200,3 +202,59 @@ $url = "http://127.0.0.1:$($cfg.webPort)"
 if (-not $NoBrowser) { Start-Process $url }
 Say ""
 Say "全部就绪 → $url" "Green"
+
+# ---------- 反向隧道（手机/外网访问） ----------
+if (-not $NoTunnel -and $cfg.tunnelHost -and $cfg.tunnelUser) {
+    $tHost = $cfg.tunnelHost
+    $tUser = $cfg.tunnelUser
+    $tPort = if ($cfg.tunnelRemotePort) { [int]$cfg.tunnelRemotePort } else { 18490 }
+    $tKey  = if ($cfg.tunnelKey) { $cfg.tunnelKey } else { "$env:USERPROFILE\.ssh\id_ed25519" }
+    $tLog  = Join-Path $repo "tunnel.log"
+
+    Say ""
+    Say "== 反向隧道 =="
+    $running = @()
+    $running += @(Get-CimInstance Win32_Process -Filter "Name='ssh.exe'" -ErrorAction SilentlyContinue |
+                  Where-Object { $_.CommandLine -and $_.CommandLine -match ":${tPort}:" })
+    $running += @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+                  Where-Object { $_.CommandLine -and $_.CommandLine -match 'tunnel\.ps1' })
+    if ($running) {
+        Say "  已在运行（远程端口 $tPort），跳过" "Green"
+    } else {
+        if (-not (Test-Path $tKey)) {
+            Say "  [跳过] 找不到密钥 $tKey" "Yellow"
+        } else {
+            $sshArgs = @('-N','-T','-o','BatchMode=yes','-o','ExitOnForwardFailure=yes',
+                         '-o','ServerAliveInterval=20','-o','ServerAliveCountMax=3',
+                         '-o','StrictHostKeyChecking=accept-new',
+                         '-i',$tKey,'-p',$(if($cfg.tunnelSshPort){[int]$cfg.tunnelSshPort}else{22}),
+                         '-R',"0.0.0.0:${tPort}:127.0.0.1:$($cfg.webPort)",
+                         "$tUser@$tHost")
+            # 用带重连的 tunnel.ps1，而不是一次性 ssh
+            $tunnelScript = Join-Path $repo "tunnel.ps1"
+            $p = Start-Process -FilePath "powershell.exe" -ArgumentList @(
+                    '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden',
+                    '-File', $tunnelScript,
+                    '-RemoteHost', $tHost, '-User', $tUser,
+                    '-RemotePort', $tPort,
+                    '-SshPort', $(if($cfg.tunnelSshPort){[int]$cfg.tunnelSshPort}else{22}),
+                    '-KeyPath', $tKey
+                 ) -WindowStyle Hidden -PassThru
+            Start-Sleep -Seconds 6
+            if (Get-Process -Id $p.Id -ErrorAction SilentlyContinue) {
+                Say "  已连接：$tUser@$tHost  远端 0.0.0.0:$tPort → 本机 $($cfg.webPort)" "Green"
+                $tok = ""
+                $cfgJson = Join-Path $webDir "config.json"
+                if (Test-Path $cfgJson) {
+                    try { $tok = (Get-Content $cfgJson -Raw -Encoding UTF8 | ConvertFrom-Json).token } catch { }
+                }
+                $ext = "http://${tHost}:${tPort}/"
+                if ($tok) { $ext += "?token=$tok" }
+                Say "  手机访问：$ext" "Green"
+            } else {
+                Say "  [失败] 隧道没起来，看 $tLog" "Yellow"
+                if (Test-Path $tLog) { (Get-Content $tLog -Raw) -split "`n" | Select-Object -Last 3 | ForEach-Object { Say "    $_" "DarkGray" } }
+            }
+        }
+    }
+}
